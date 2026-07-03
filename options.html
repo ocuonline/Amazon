@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Anlık Ürün Takip Ayarları sayfası." />
+    <title>Anlık Ürün Takip Ayarları</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" />
+    <link rel="stylesheet" href="css/options.css" />
+    <script src="options.js" type="module"></script>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <div id="brand">
+          <img id="brand-icon" src="icons/icon48.png" width="48" height="48" alt="Logo" />
+          <div>
+            <div class="brand-title">Anlık Fiyat Takip</div>
+            <div class="brand-sub">Ayarlar</div>
+          </div>
+        </div>
+
+        <nav id="tab-nav">
+          <button class="tab-btn active" data-tab="genel">
+            <span class="material-icons">tune</span>
+            <span>Genel</span>
+          </button>
+          <button class="tab-btn" data-tab="sesli">
+            <span class="material-icons">volume_up</span>
+            <span>Sesli Bildirimler</span>
+          </button>
+          <button class="tab-btn" data-tab="popup">
+            <span class="material-icons">announcement</span>
+            <span>Pop-up Bildirimler</span>
+          </button>
+          <button class="tab-btn" data-tab="veri">
+            <span class="material-icons">storage</span>
+            <span>Veri</span>
+          </button>
+        </nav>
+
+        <div id="rehber">
+          <button class="tab-btn" id="rehber-btn">
+            <span class="material-icons">help_outline</span>
+            <span>Rehber</span>
+          </button>
+        </div>
+
+        <div id="sidebar-footer">
+          <span class="material-icons" style="font-size: 14px; opacity: 0.4">info</span>
+          <span id="extension-version" style="font-size: 12px; opacity: 0.4"></span>
+        </div>
+      </aside>
+
+      <main id="content">
+        <!-- GENEL TAB -->
+        <section class="tab-panel active" id="tab-genel">
+          <div class="panel-header">
+            <h2>Genel Ayarlar</h2>
+            <p>Fiyat kontrol sıklığı ve indirim eşiğini buradan ayarlayın.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-row">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-blue">travel_explore</span>
+                <div>
+                  <div class="label-title">Veri Çekme Yöntemi</div>
+                  <div class="label-sub">
+                    Fetch: Hızlı çalışır, arka planda istek atar. Bazı ürünlerde stok/fiyat bilgisi gelmeyebilir. DOM: Gerçek bir sayfa açar, yavaştır ama tüm
+                    bilgileri eksiksiz çeker.
+                  </div>
+                </div>
+              </div>
+              <div class="chip-group">
+                <label class="chip"><input type="radio" name="fetchMode" value="fetch" /><span>Fetch</span></label>
+                <label class="chip"><input type="radio" name="fetchMode" value="dom" /><span>DOM</span></label>
+              </div>
+            </div>
+
+            <div class="card-row">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-amber">tab</span>
+                <div>
+                  <div class="label-title">Eş Zamanlı Kontrol</div>
+                  <div class="label-sub">Aynı anda kaç ürün kontrol edilsin (Yüksek değerler bot olarak algılanabilir)</div>
+                </div>
+              </div>
+              <div class="chip-group">
+                <label class="chip"><input type="radio" name="concurrentLimit" value="1" /><span>1</span></label>
+                <label class="chip"><input type="radio" name="concurrentLimit" value="2" /><span>2</span></label>
+                <label class="chip"><input type="radio" name="concurrentLimit" value="3" /><span>3</span></label>
+              </div>
+            </div>
+
+            <div class="card-row" data-tooltip="Listenizdeki ürün fiyatları ne sıklıkla kontrol edilsin?">
+              <div class="row-label">
+                <span class="material-icons row-icon">timer</span>
+                <div>
+                  <div class="label-title">Fiyat Kontrol Sıklığı</div>
+                  <div class="label-sub">Otomatik kontrol aralığı</div>
+                </div>
+              </div>
+              <div class="chip-group">
+                <label class="chip"><input type="radio" name="priceCheckInterval" value="0" /><span>Kapalı</span></label>
+                <label class="chip"><input type="radio" name="priceCheckInterval" value="5" /><span>5dk</span></label>
+                <label class="chip"><input type="radio" name="priceCheckInterval" value="10" /><span>10dk</span></label>
+                <label class="chip"><input type="radio" name="priceCheckInterval" value="30" /><span>30dk</span></label>
+                <label class="chip"><input type="radio" name="priceCheckInterval" value="60" /><span>60dk</span></label>
+              </div>
+            </div>
+
+            <div class="card-row" data-tooltip="Yüzde kaç indirimde bildirim almak istiyorsunuz?">
+              <div class="row-label">
+                <span class="material-icons row-icon">percent</span>
+                <div>
+                  <div class="label-title">İndirim Bildirim Eşiği</div>
+                  <div class="label-sub">Minimum indirim yüzdesi</div>
+                </div>
+              </div>
+              <div class="range-control">
+                <span class="range-badge" id="rangeValue">Her Zaman</span>
+                <input type="range" id="thresholdRange" name="priceChangeThreshold" min="0" max="50" step="5" value="0" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SESLİ BİLDİRİMLER TAB -->
+        <section class="tab-panel" id="tab-sesli">
+          <div class="panel-header">
+            <h2>Sesli Bildirimler</h2>
+            <p>Fiyat değişimlerinde çalacak sesleri ve ses seviyesini ayarlayın.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-row master-row">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-blue">volume_up</span>
+                <div>
+                  <div class="label-title">Tüm Sesli Bildirimler</div>
+                  <div class="label-sub">Ana ses anahtarı — pop-up'ları etkilemez</div>
+                </div>
+              </div>
+              <div class="toggle-group">
+                <label class="chip chip-off"
+                  ><input type="radio" name="notificationType" value="n_off" /><span class="material-icons" style="font-size: 16px">volume_off</span
+                  ><span>Kapalı</span></label
+                >
+                <label class="chip chip-on"
+                  ><input type="radio" name="notificationType" value="n_on" /><span class="material-icons" style="font-size: 16px">volume_up</span
+                  ><span>Açık</span></label
+                >
+              </div>
+            </div>
+
+            <div class="card-row" data-tooltip="Bildirim ses şiddetini ayarlayın.">
+              <div class="row-label">
+                <span class="material-icons row-icon">graphic_eq</span>
+                <div>
+                  <div class="label-title">Ses Şiddeti</div>
+                  <div class="label-sub">Bildirim ses seviyesi</div>
+                </div>
+              </div>
+              <div class="range-control">
+                <span class="range-badge" id="volumeValue">50%</span>
+                <input type="range" id="volumeRange" name="notificationVolume" min="0" max="100" step="5" value="50" />
+              </div>
+            </div>
+          </div>
+
+          <div class="section-title">Bildirim Türleri</div>
+
+          <div class="card">
+            <div class="card-row sound-row" data-name="discountNotification">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-green">trending_down</span>
+                <div>
+                  <div class="label-title">İndirim Bildirimi</div>
+                  <div class="label-sub">Fiyat düştüğünde</div>
+                </div>
+              </div>
+              <div class="sound-controls">
+                <select id="discountSound" name="discountSound" class="sound-select"></select>
+                <div class="toggle-group">
+                  <label class="chip chip-off"><input type="radio" name="discountNotification" value="d_off" /><span>Kapalı</span></label>
+                  <label class="chip chip-on"><input type="radio" name="discountNotification" value="d_on" /><span>Açık</span></label>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-row sound-row" data-name="stockNotification">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-blue">inventory</span>
+                <div>
+                  <div class="label-title">Stok Bildirimi</div>
+                  <div class="label-sub">Ürün stoğa girdiğinde</div>
+                </div>
+              </div>
+              <div class="sound-controls">
+                <select id="stockSound" name="stockSound" class="sound-select"></select>
+                <div class="toggle-group">
+                  <label class="chip chip-off"><input type="radio" name="stockNotification" value="s_off" /><span>Kapalı</span></label>
+                  <label class="chip chip-on"><input type="radio" name="stockNotification" value="s_on" /><span>Açık</span></label>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-row sound-row" data-name="priceIncreaseNotification">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-red">trending_up</span>
+                <div>
+                  <div class="label-title">Zam Bildirimi</div>
+                  <div class="label-sub">Fiyat arttığında</div>
+                </div>
+              </div>
+              <div class="sound-controls">
+                <select id="priceIncreaseSound" name="priceIncreaseSound" class="sound-select"></select>
+                <div class="toggle-group">
+                  <label class="chip chip-off"><input type="radio" name="priceIncreaseNotification" value="pi_off" /><span>Kapalı</span></label>
+                  <label class="chip chip-on"><input type="radio" name="priceIncreaseNotification" value="pi_on" /><span>Açık</span></label>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-row sound-row" data-name="targetPriceNotification">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-amber">gps_fixed</span>
+                <div>
+                  <div class="label-title">Hedef Fiyat Bildirimi</div>
+                  <div class="label-sub">Hedef fiyata ulaşıldığında, yada düştüğünde</div>
+                </div>
+              </div>
+              <div class="sound-controls">
+                <select id="targetPriceSound" name="targetPriceSound" class="sound-select"></select>
+                <div class="toggle-group">
+                  <label class="chip chip-off"><input type="radio" name="targetPriceNotification" value="tp_off" /><span>Kapalı</span></label>
+                  <label class="chip chip-on"><input type="radio" name="targetPriceNotification" value="tp_on" /><span>Açık</span></label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- POPUP BİLDİRİMLER TAB -->
+        <section class="tab-panel" id="tab-popup">
+          <div class="panel-header">
+            <h2>Pop-up Bildirimler</h2>
+            <p>Windows sistem bildirimleri için görsel ayarları yapın.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-row master-row">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-blue">announcement</span>
+                <div>
+                  <div class="label-title">Tüm Pop-up Bildirimler</div>
+                  <div class="label-sub">Ana pop-up anahtarı — sesi etkilemez</div>
+                </div>
+              </div>
+              <div class="toggle-group">
+                <label class="chip chip-off"
+                  ><input type="radio" name="allVisualNotification" value="av_off" /><span class="material-icons" style="font-size: 16px"
+                    >notifications_off</span
+                  ><span>Kapalı</span></label
+                >
+                <label class="chip chip-on"
+                  ><input type="radio" name="allVisualNotification" value="av_on" /><span class="material-icons" style="font-size: 16px"
+                    >notifications_active</span
+                  ><span>Açık</span></label
+                >
+              </div>
+            </div>
+
+            <div class="card-row">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-amber">pan_tool</span>
+                <div>
+                  <div class="label-title">Kalıcı Pop-up</div>
+                  <div class="label-sub">Bildirim kapanana kadar ekranda kalsın</div>
+                </div>
+              </div>
+              <div class="toggle-group">
+                <label class="chip chip-off"><input type="radio" name="requireInteraction" value="ri_off" /><span>Kapalı</span></label>
+                <label class="chip chip-on"><input type="radio" name="requireInteraction" value="ri_on" /><span>Açık</span></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-title">Bildirim Türleri</div>
+
+          <div class="card">
+            <div class="card-row" data-name="visualDiscountNotification">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-green">trending_down</span>
+                <div>
+                  <div class="label-title">İndirim Pop-up</div>
+                  <div class="label-sub">Fiyat düştüğünde pencere bildirimi</div>
+                </div>
+              </div>
+              <div class="toggle-group">
+                <label class="chip chip-off"><input type="radio" name="visualDiscountNotification" value="vd_off" /><span>Kapalı</span></label>
+                <label class="chip chip-on"><input type="radio" name="visualDiscountNotification" value="vd_on" /><span>Açık</span></label>
+              </div>
+            </div>
+
+            <div class="card-row" data-name="visualStockNotification">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-blue">inventory</span>
+                <div>
+                  <div class="label-title">Stok Pop-up</div>
+                  <div class="label-sub">Ürün stoğa girdiğinde pencere bildirimi</div>
+                </div>
+              </div>
+              <div class="toggle-group">
+                <label class="chip chip-off"><input type="radio" name="visualStockNotification" value="vs_off" /><span>Kapalı</span></label>
+                <label class="chip chip-on"><input type="radio" name="visualStockNotification" value="vs_on" /><span>Açık</span></label>
+              </div>
+            </div>
+
+            <div class="card-row" data-name="visualPriceIncreaseNotification">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-red">trending_up</span>
+                <div>
+                  <div class="label-title">Zam Pop-up</div>
+                  <div class="label-sub">Fiyat arttığında pencere bildirimi</div>
+                </div>
+              </div>
+              <div class="toggle-group">
+                <label class="chip chip-off"><input type="radio" name="visualPriceIncreaseNotification" value="vpi_off" /><span>Kapalı</span></label>
+                <label class="chip chip-on"><input type="radio" name="visualPriceIncreaseNotification" value="vpi_on" /><span>Açık</span></label>
+              </div>
+            </div>
+
+            <div class="card-row" data-name="visualTargetPriceNotification">
+              <div class="row-label">
+                <span class="material-icons row-icon accent-amber">gps_fixed</span>
+                <div>
+                  <div class="label-title">Hedef Fiyat Pop-up</div>
+                  <div class="label-sub">Hedef fiyata ulaşıldığında pencere bildirimi</div>
+                </div>
+              </div>
+              <div class="toggle-group">
+                <label class="chip chip-off"><input type="radio" name="visualTargetPriceNotification" value="vtp_off" /><span>Kapalı</span></label>
+                <label class="chip chip-on"><input type="radio" name="visualTargetPriceNotification" value="vtp_on" /><span>Açık</span></label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- VERİ TAB -->
+        <section class="tab-panel" id="tab-veri">
+          <div class="panel-header">
+            <h2>Veri Yönetimi</h2>
+            <p>Ürün listenizi içeri/dışarı aktarın veya görselleri güncelleyin.</p>
+          </div>
+
+          <div class="card">
+            <div class="data-action-row">
+              <div class="action-info">
+                <span class="material-icons action-icon" style="color: #4caf50">upload_file</span>
+                <div>
+                  <div class="label-title">İçeri Aktar</div>
+                  <div class="label-sub">JSON dosyasından ürün listesi al</div>
+                </div>
+              </div>
+              <button id="import-json" class="action-btn btn-green"><span class="material-icons" style="font-size: 18px">upload</span> İçeri Aktar</button>
+              <input type="file" id="import-json-file" style="display: none" title="JSON dosyasını içeri aktar" />
+            </div>
+
+            <div class="data-action-row">
+              <div class="action-info">
+                <span class="material-icons action-icon" style="color: #0078d4">download</span>
+                <div>
+                  <div class="label-title">Dışarı Aktar</div>
+                  <div class="label-sub">Ürün listesini JSON olarak kaydet</div>
+                </div>
+              </div>
+              <button id="export-json" class="action-btn btn-blue"><span class="material-icons" style="font-size: 18px">download</span> Dışarı Aktar</button>
+            </div>
+
+            <div class="data-action-row">
+              <div class="action-info">
+                <span class="material-icons action-icon" style="color: #9c27b0">image_search</span>
+                <div>
+                  <div class="label-title">Görselleri Güncelle</div>
+                  <div class="label-sub">Görseli olmayan ürünlere resim ekle</div>
+                </div>
+              </div>
+              <button id="update-images" class="action-btn btn-purple">
+                <span class="material-icons" style="font-size: 18px">image_search</span> Güncelle
+              </button>
+            </div>
+          </div>
+
+          <div class="card danger-card">
+            <div class="data-action-row">
+              <div class="action-info">
+                <span class="material-icons action-icon" style="color: #e53935">delete_forever</span>
+                <div>
+                  <div class="label-title">Tüm Verileri Sıfırla</div>
+                  <div class="label-sub">Ürün listesi ve ayarlar silinir, geri alınamaz</div>
+                </div>
+              </div>
+              <button id="clear-data" class="action-btn btn-red"><span class="material-icons" style="font-size: 18px">delete_forever</span> Sıfırla</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

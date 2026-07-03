@@ -1,0 +1,349 @@
+#followButton .icon {
+  margin-right: 10px;
+}
+
+#alarmButton.alarm-btn {
+  background-color: #272f3d;
+  color: white;
+  border: none;
+  padding: 8px 10px;
+  font-weight: bold;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+}
+
+#alarmButton.alarm-btn:hover {
+  opacity: 0.8;
+}
+
+.follow-btn,
+.notify-btn {
+  background-color: #0478ff;
+  color: white;
+  border: none;
+  padding: 8px 10px;
+  font-weight: bold;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+}
+
+.unfollow-btn {
+  background-color: #cc0c39;
+  color: white;
+  border: none;
+  padding: 8px 10px;
+  font-weight: bold;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+}
+
+.follow-btn:hover,
+.notify-btn:hover,
+.unfollow-btn:hover {
+  opacity: 0.8;
+}
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 10px 20px;
+  border-radius: 5px;
+  color: white;
+  font-size: 16px;
+  font-weight: bold;
+  z-index: 1000;
+  opacity: 0.9;
+  animation: fadeInOut 3s;
+  display: flex;
+  align-items: center;
+  transition: transform 0.5s ease-out;
+  box-shadow:
+    0px 4px 6px rgba(0, 0, 0, 0.1),
+    0px 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.toast.success {
+  background-color: #4caf50;
+}
+
+.toast.warning {
+  background-color: #ff9800;
+}
+
+.toast.error {
+  background-color: #ff3333;
+}
+
+@keyframes fadeInOut {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  10% {
+    opacity: 0.9;
+    transform: translateY(0);
+  }
+  90% {
+    opacity: 0.9;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+}
+
+#priceHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+}
+
+#priceHeader > div {
+  flex: 1;
+  text-align: center;
+}
+
+.price-history-box {
+  position: relative;
+  overflow: visible;
+  padding: 12px;
+  margin: 10px 0;
+  border-radius: 8px;
+  border-left: 4px solid #6c757d;
+  font-size: 14px;
+  line-height: 1;
+  background-color: #e9ecef;
+}
+
+.price-history-box.zam {
+  border-left-color: #dc3545;
+  background-color: #f8d7da;
+}
+
+.price-history-box.indirim {
+  border-left-color: #28a745;
+  background-color: #d4edda;
+}
+
+.price-history-box.bilgi {
+  background-color: #eaf4ff;
+  border-left: 4px solid #3399ff;
+}
+
+.chart-area {
+  width: 100%;
+  height: 360px;
+}
+
+.chart-btn-group {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.chart-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.chart-container .toggle-group-right {
+  margin-left: 30px;
+}
+
+.chart-container .chart-area {
+  width: 100%;
+  order: 3;
+}
+
+.chart-period-btn {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  background: #e9ecef;
+  color: #555;
+  border: 1px solid #ccc;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.chart-period-btn:hover {
+  background: #d0d0d0;
+  color: #333;
+}
+
+.chart-period-btn.active {
+  background: #0478ff;
+  color: #fff;
+  border-color: #0478ff;
+}
+
+#followButtonWrapper {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.alarm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.alarm-modal-box {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-family: Arial, sans-serif;
+}
+
+.alarm-modal-title {
+  font-size: 15px;
+  font-weight: bold;
+}
+
+.alarm-modal-product-name {
+  font-size: 12px;
+  color: #555;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alarm-modal-input {
+  border-radius: 5px;
+  padding: 8px 10px;
+  font-size: 14px;
+  width: 100%;
+  border: 1px solid #ccc;
+}
+
+.alarm-modal-error {
+  font-size: 11px;
+  color: red;
+  min-height: 14px;
+}
+
+.alarm-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.alarm-modal-cancel {
+  padding: 7px 14px;
+  border-radius: 5px;
+  border: none;
+  background: #eee;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.alarm-modal-save {
+  padding: 7px 14px;
+  border-radius: 5px;
+  border: none;
+  background: #0478ff;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+#modal-pct-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+#modal-pct-row button {
+  padding: 4px 5px;
+  border-radius: 5px;
+  border: none;
+  background: #e06f1f;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.alarm-modal-delete {
+  padding: 7px 14px;
+  border-radius: 5px;
+  border: none;
+  margin-right: auto;
+  background: red;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.star-btn {
+  background-color: #4778fb;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  padding: 3px 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: bold;
+  margin-right: 6px;
+}
+
+.star-btn.followed {
+  background-color: #e31b23;
+}
+
+.ring-btn {
+  background-color: #272f3d;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  padding: 3px 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.cheaper-seller-box {
+  background-color: #e6f4ea;
+  border: 1px solid #34a853;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  color: #1e4620;
+  font-weight: bold;
+}
+
+.cheaper-seller-box a {
+  color: #1a73e8;
+  text-decoration: underline;
+}

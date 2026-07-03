@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Popup Kullanım Rehberi</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" />
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap");
+
+      :root {
+        --bg: #121318;
+        --bg2: #15161d;
+        --bg3: #0c0d12;
+        --border: rgba(255, 255, 255, 0.08);
+        --border-hover: rgba(255, 255, 255, 0.16);
+        --text: #f2f2f5;
+        --text2: #8a8b93;
+        --text3: #a7a8b0;
+        --accent: #3b82f6;
+        --accent-soft: rgba(59, 130, 246, 0.15);
+        --green: #22c55e;
+        --red: #ef4444;
+        --orange: #ff9500;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: "DM Sans", sans-serif;
+        background: radial-gradient(circle at 20% -10%, #23253000, #101116 60%), #101116;
+        color: var(--text);
+        padding: 48px 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+
+
+      h1 {
+        text-align: center;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: -0.3px;
+        margin-bottom: 6px;
+      }
+
+      .subtitle {
+        text-align: center;
+        color: var(--text2);
+        font-size: 13.5px;
+        margin-bottom: 36px;
+      }
+
+      .mockup-wrap {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 26px;
+      }
+
+      .popup-mock {
+        width: 800px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: visible;
+        font-size: 13px;
+        position: relative;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+      }
+
+      button {
+        background: transparent;
+        border: none;
+        color: var(--text2);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        padding: 5px;
+      }
+      button .material-icons {
+        font-size: 18px;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      .numbered {
+        position: relative;
+        display: inline-flex;
+      }
+      .badge {
+        position: absolute;
+        top: -8px;
+        right: -8px;
+        background: linear-gradient(135deg, #ff5f5f, #e11d1d);
+        color: #fff;
+        width: 19px;
+        height: 19px;
+        border-radius: 50%;
+        font-size: 10.5px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow:
+          0 0 0 2.5px var(--bg),
+          0 2px 4px rgba(0, 0, 0, 0.4);
+        z-index: 10;
+        font-family: "DM Sans", sans-serif;
+      }
+      .numbered-block {
+        position: relative;
+      }
+      .numbered-block > .badge {
+        top: -10px;
+        left: -10px;
+        right: auto;
+      }
+
+      #topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 9px 10px;
+        border-bottom: 1px solid var(--border);
+        gap: 10px;
+      }
+      #topbar-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 1;
+      }
+      #topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .logo {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        background: linear-gradient(135deg, var(--accent), #1d4ed8);
+        flex-shrink: 0;
+      }
+      #search-box {
+        flex: 1;
+        max-width: 220px;
+        background: var(--bg3);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text3);
+        font-size: 12px;
+        padding: 7px 10px;
+      }
+
+      #list-header {
+        display: flex;
+        align-items: center;
+        padding: 7px 10px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg3);
+        font-size: 11.5px;
+        color: var(--text2);
+        gap: 7px;
+        letter-spacing: 0.4px;
+      }
+      .col-check {
+        width: 26px;
+        text-align: center;
+        flex-shrink: 0;
+      }
+      .col-group {
+        width: 26px;
+        text-align: center;
+        flex-shrink: 0;
+      }
+      .col-pic {
+        width: 32px;
+        height: 32px;
+        flex-shrink: 0;
+      }
+      .col-name {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .col-price {
+        width: 96px;
+        text-align: center;
+        flex-shrink: 0;
+      }
+      .col-percent {
+        width: 68px;
+        text-align: center;
+        flex-shrink: 0;
+      }
+      .col-delete {
+        width: 26px;
+        text-align: center;
+        flex-shrink: 0;
+      }
+
+      .product-row {
+        display: flex;
+        align-items: center;
+        padding: 9px 10px;
+        border-bottom: 1px solid var(--border);
+        gap: 7px;
+        transition: background 0.15s;
+      }
+      .product-row.highlight {
+        background: rgba(59, 130, 246, 0.05);
+      }
+
+      .check-btn {
+        width: 27px;
+        height: 27px;
+        border-radius: 50%;
+        background: var(--bg3);
+      }
+      .group-btn {
+        width: 23px;
+        height: 23px;
+        font-size: 13px;
+        border-radius: 50%;
+        border: 1px dashed var(--border-hover);
+        color: var(--text3);
+        padding: 0;
+      }
+      .pic-box {
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        background: var(--bg3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text3);
+        border: 1px solid var(--border);
+      }
+      .pic-box .material-icons {
+        font-size: 16px;
+      }
+
+      .name-line {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .product-link {
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 340px;
+        display: inline-block;
+      }
+      .hb-link {
+        color: #ff6b1a;
+      }
+      .amazon-link {
+        color: #4b9bff;
+      }
+
+      .product-meta {
+        font-size: 11px;
+        color: var(--text3);
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 3px;
+        flex-wrap: wrap;
+      }
+      .meta-date {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .meta-date .material-icons {
+        font-size: 12px;
+      }
+
+      .alarm-wrapper {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 11px;
+        color: var(--text3);
+      }
+      .alarm-wrapper .material-icons {
+        font-size: 12px;
+        color: var(--orange);
+      }
+      .alarm-wrapper.active {
+        color: var(--red);
+      }
+      .alarm-wrapper.active .material-icons {
+        color: var(--red);
+      }
+
+      .promo-badge {
+        font-size: 10px;
+        font-weight: 600;
+        border-radius: 5px;
+        padding: 2px 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .badge-out {
+        color: var(--red);
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+      }
+      .badge-in {
+        color: var(--accent);
+        background: rgba(59, 130, 246, 0.12);
+        border: 1px solid rgba(59, 130, 246, 0.3);
+      }
+      .badge-campaign {
+        color: #ff6000;
+        background: rgba(255, 96, 0, 0.12);
+        border: 1px solid rgba(255, 96, 0, 0.3);
+      }
+      .badge-installment {
+        color: var(--orange);
+        background: rgba(255, 149, 0, 0.12);
+        border: 1px solid rgba(255, 149, 0, 0.3);
+      }
+
+      .price-value {
+        font-size: 13.5px;
+        font-weight: 700;
+        text-align: right;
+      }
+      .price-down-color {
+        color: var(--green);
+      }
+      .price-up-color {
+        color: var(--red);
+      }
+      .price-old {
+        font-size: 10.5px;
+        color: var(--text3);
+        text-decoration: line-through;
+        text-align: right;
+      }
+
+      .percent-down {
+        color: var(--green);
+        font-size: 12px;
+        font-weight: 700;
+        text-align: center;
+      }
+      .percent-up {
+        color: var(--red);
+        font-size: 12px;
+        font-weight: 700;
+        text-align: center;
+      }
+      .percent-diff {
+        font-size: 10.5px;
+        color: var(--text3);
+        text-align: center;
+      }
+
+      .delete-btn {
+        width: 23px;
+        height: 23px;
+        border-radius: 50%;
+        color: var(--text3);
+      }
+      .delete-btn .material-icons {
+        font-size: 15px;
+      }
+
+      .dropdown-row {
+        display: flex;
+        justify-content: center;
+        gap: 70px;
+        margin: 34px 0 10px;
+        flex-wrap: wrap;
+      }
+      .dropdown-mock {
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 8px;
+        width: 210px;
+        position: relative;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+      }
+      .filter-option {
+        padding: 8px 10px;
+        font-size: 12.5px;
+        border-radius: 8px;
+        color: var(--text3);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        position: relative;
+        margin-bottom: 2px;
+      }
+      .filter-option .material-icons {
+        font-size: 15px;
+      }
+      .dropdown-title {
+        text-align: center;
+        font-size: 11.5px;
+        color: var(--text2);
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        font-weight: 600;
+      }
+      .mini-badge {
+        position: absolute;
+        top: 3px;
+        right: 4px;
+        background: linear-gradient(135deg, #ff5f5f, #e11d1d);
+        color: #fff;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        font-size: 9.5px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .section-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text3);
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        margin: 34px 0 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .section-title::before {
+        content: "";
+        width: 4px;
+        height: 14px;
+        background: var(--accent);
+        border-radius: 2px;
+      }
+
+      .legend {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px 24px;
+      }
+      .legend-item {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        font-size: 12.5px;
+        line-height: 1.4;
+        padding: 10px 12px;
+        background: var(--bg2);
+        border-radius: 10px;
+        border: 1px solid var(--border);
+      }
+      .legend-num {
+        background: linear-gradient(135deg, #ff5f5f, #e11d1d);
+        color: #fff;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        font-size: 10.5px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+      .legend-text b {
+        color: var(--text);
+        font-size: 12.8px;
+      }
+      .legend-text span {
+        color: var(--text3);
+        display: block;
+        margin-top: 2px;
+      }
+
+      @media (max-width: 1200px) {
+        .legend {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="canvas">
+      <h1>📌 Fiyat Takip Eklentisi — Popup Rehberi</h1>
+      <div class="subtitle">Numaralar, arayüzdeki her butonun ve alanın ne işe yaradığını gösterir.</div>
+
+      <!-- ANA POPUP MOCKUP -->
+      <div class="mockup-wrap">
+        <div class="popup-mock">
+          <!-- TOPBAR -->
+
+<img src="rehber.png"/> 
+
+
+      <!-- DROPDOWN MENÜLER -->
+      <div class="section-title">Filtre &amp; Sıralama Menüleri</div>
+      <div class="dropdown-row">
+        <div class="dropdown-mock">
+          <div class="dropdown-title">(2) Filtre Menüsü</div>
+          <div class="filter-option">
+            <span class="material-icons">track_changes</span>Hedef Fiyat
+            <div class="mini-badge">21</div>
+          </div>
+          <div class="filter-option">
+            <span class="material-icons">trending_down</span>İndirimli
+            <div class="mini-badge">22</div>
+          </div>
+          <div class="filter-option">
+            <span class="material-icons">add_circle</span>Stoğa Giren
+            <div class="mini-badge">23</div>
+          </div>
+          <div class="filter-option">
+            <span class="material-icons">trending_up</span>Zamlanan
+            <div class="mini-badge">24</div>
+          </div>
+          <div class="filter-option">
+            <span class="material-icons">do_not_disturb</span>Stoğu Yok
+            <div class="mini-badge">25</div>
+          </div>
+          <div class="filter-option">
+            🔴🟡🟢 Renkli Grup
+            <div class="mini-badge">26</div>
+          </div>
+        </div>
+
+        <div class="dropdown-mock">
+          <div class="dropdown-title">(3) Sıralama Menüsü</div>
+          <div class="filter-option">
+            <span class="material-icons">sort_by_alpha</span>İsme Göre
+            <div class="mini-badge">27</div>
+          </div>
+          <div class="filter-option">
+            <span class="material-icons">event</span>Eklenme Tarihi
+            <div class="mini-badge">28</div>
+          </div>
+          <div class="filter-option">
+            <span class="material-icons">payments</span>Güncel Fiyat
+            <div class="mini-badge">29</div>
+          </div>
+          <div class="filter-option">
+            <span class="material-icons">schedule</span>Fiyat Değişim
+            <div class="mini-badge">30</div>
+          </div>
+          <div class="filter-option">
+            <span class="material-icons">bar_chart</span>Değişim Oranı
+            <div class="mini-badge">31</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LEGEND -->
+      <div class="section-title">Üst Menü</div>
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-num">1</div>
+          <div class="legend-text"><b>Arama Kutusu</b><span>Ürün adı veya ID yazarak listede arama yapar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">2</div>
+          <div class="legend-text"><b>Filtrele</b><span>Listeyi belirli kriterlere göre daraltmak için menü açar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">3</div>
+          <div class="legend-text"><b>Sırala</b><span>Ürünleri isim, tarih, fiyat veya değişim oranına göre sıralar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">4</div>
+          <div class="legend-text"><b>Yüzde Modu</b><span>Değişim oranının "Genel" mi "Anlık" fiyata göre mi hesaplanacağını değiştirir.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">5</div>
+          <div class="legend-text"><b>Geri Bildirim</b><span>Destek/ticket sayfasını yeni sekmede açar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">6</div>
+          <div class="legend-text"><b>Ayarlar</b><span>Eklentinin ayarlar sayfasını açar.</span></div>
+        </div>
+      </div>
+
+      <div class="section-title">Liste Başlığı</div>
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-num">7</div>
+          <div class="legend-text"><b>Fiyatları Güncelle</b><span>Listedeki tüm ürünlerin fiyatını topluca kontrol eder.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">8</div>
+          <div class="legend-text"><b>Gruba Göre Sırala</b><span>Ürünleri renkli gruplarına göre sıralar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">9</div>
+          <div class="legend-text"><b>Tümünü Sil</b><span>Takip edilen tüm ürünleri listeden kaldırır.</span></div>
+        </div>
+      </div>
+
+      <div class="section-title">Ürün Satırı</div>
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-num">10</div>
+          <div class="legend-text"><b>Tekil Kontrol</b><span>Sadece o ürünün fiyatını anında kontrol eder.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">11</div>
+          <div class="legend-text"><b>Grup Butonu</b><span>Ürüne renkli bir grup atamak için tıklanır.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">12</div>
+          <div class="legend-text"><b>Ürün Resmi</b><span>Tıklandığında ürün ID'sini panoya kopyalar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">13</div>
+          <div class="legend-text"><b>Ürün Adı</b><span>Tıklandığında ürün sayfasını yeni sekmede açar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">14</div>
+          <div class="legend-text"><b>Eklenme Tarihi</b><span>Ürünün takibe alındığı tarihi gösterir.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">15</div>
+          <div class="legend-text"><b>Hedef Fiyat / Alarm</b><span>Bildirim almak istediğiniz hedef fiyatı belirlemenizi sağlar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">16</div>
+          <div class="legend-text"><b>Taksit Rozeti</b><span>Ürünün kaç taksit seçeneğine sahip olduğunu gösterir.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">17</div>
+          <div class="legend-text"><b>Kampanya Rozeti</b><span>Ürüne özel aktif bir kampanya olduğunu belirtir.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">18</div>
+          <div class="legend-text"><b>Güncel / Eski Fiyat</b><span>En son çekilen fiyat ve üstü çizili eski fiyatı gösterir.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">19</div>
+          <div class="legend-text"><b>Değişim Oranı</b><span>Fiyattaki artış/azalışın yüzde ve tutarını gösterir.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">20</div>
+          <div class="legend-text"><b>Ürünü Sil</b><span>Sadece o ürünü takip listesinden kaldırır.</span></div>
+        </div>
+      </div>
+
+      <div class="section-title">Filtre Menüsü</div>
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-num">21</div>
+          <div class="legend-text"><b>Hedef Fiyat</b><span>Belirlenen hedef fiyata ulaşan ürünleri gösterir.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">22</div>
+          <div class="legend-text"><b>İndirimli</b><span>Fiyatı düşen ürünleri listeler.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">23</div>
+          <div class="legend-text"><b>Stoğa Giren</b><span>Stoğa yeni giren ürünleri listeler.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">24</div>
+          <div class="legend-text"><b>Zamlanan</b><span>Fiyatı artan ürünleri listeler.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">25</div>
+          <div class="legend-text"><b>Stoğu Yok</b><span>Stokta olmayan ürünleri listeler.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">26</div>
+          <div class="legend-text"><b>Renkli Grup</b><span>Seçilen renkteki gruba ait ürünleri listeler.</span></div>
+        </div>
+      </div>
+
+      <div class="section-title">Sıralama Menüsü</div>
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-num">27</div>
+          <div class="legend-text"><b>İsme Göre</b><span>Ürünleri alfabetik sıralar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">28</div>
+          <div class="legend-text"><b>Eklenme Tarihi</b><span>Ürünleri takibe alınma tarihine göre sıralar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">29</div>
+          <div class="legend-text"><b>Güncel Fiyat</b><span>Ürünleri en son fiyata göre sıralar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">30</div>
+          <div class="legend-text"><b>Fiyat Değişim</b><span>Ürünleri fiyatın en son değiştiği zamana göre sıralar.</span></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-num">31</div>
+          <div class="legend-text"><b>Değişim Oranı</b><span>Ürünleri yüzdesel fiyat değişimine göre sıralar.</span></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

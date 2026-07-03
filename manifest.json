@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "AFT - Anlık Fiyat Takip Eklentisi",
+  "description": "Amazon ve Hepsiburada ürünlerini takip edin ve fiyat düştüğünde uyarı alın.",
+  "version": "1.85",
+  "permissions": ["notifications", "activeTab", "offscreen", "storage", "alarms", "scripting", "tabs"],
+  "host_permissions": ["*://*.amazon.com.tr/*", "*://*.hepsiburada.com/*", "*://*.yaniyo.com/*", "*://aft.web.tr/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icons/icon32.png"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.hepsiburada.com/*-p-*", "*://*.hepsiburada.com/*-pm-*"],
+      "js": ["storage.content.js", "src/echarts.min.js", "src/auth.js", "chart.hb.js", "content.hb.js"],
+      "css": ["css/styles.css"]
+    },
+    {
+      "matches": ["*://*.amazon.com.tr/dp/*", "*://*.amazon.com.tr/*/dp/*", "*://*.amazon.com.tr/gp/product/*", "*://*.amazon.com.tr/*/gp/product/*"],
+      "js": ["storage.content.js", "src/echarts.min.js", "src/auth.js", "chart.amazon.js", "content.amazon.js"],
+      "css": ["css/styles.css"]
+    },
+    {
+      "matches": ["*://*.amazon.com.tr/gp/cart*", "*://*.amazon.com.tr/cart*"],
+      "js": ["storage.content.js", "src/auth.js", "content.sepet.js"],
+      "css": ["css/styles.css"]
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/echarts.min.js", "sound/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; media-src 'self'"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "aft@ocu.web.tr",
+      "data_collection_permissions": {
+        "required": ["none"],
+        "optional": []
+      }
+    }
+  }
+}
