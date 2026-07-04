@@ -1,12 +1,8 @@
 // background > price.hb.js (bu açıklamayı silme)
-import {buildPrice} from "./update.js";
+import {buildPrice, formatTL} from "./utils.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;
-}
-
-function formatTL(price) {
-  return price.toLocaleString("tr-TR", {maximumFractionDigits: 2}).replace(/,00$/, "");
 }
 
 function pickBestListing(listings) {
@@ -29,10 +25,10 @@ export async function fetchProductHB(url) {
   try {
     pageRes = await fetch(url);
   } catch (err) {
-    console.error("fetchProductHB: sayfa fetch hatası", err);
-    return {price: null, outOfStock: true};
+    console.error("fetchProductHB: sayfa fetch hatası", err, url);
+    return {price: null, outOfStock: true, deleted: false};
   }
-  if (!pageRes.ok) return {price: null, outOfStock: true};
+  if (!pageRes.ok) return {price: null, outOfStock: true, deleted: false};
   const pageHtml = await pageRes.text();
 
   const pageType = pageHtml.match(/name="page_type"\s+content="([^"]+)"/i)?.[1];
@@ -54,11 +50,19 @@ export async function fetchProductHB(url) {
 
   const json = await res.json();
   const listings = json?.data?.listings ?? [];
-  const {bestPrice, bestListing} = pickBestListing(listings);
-
+  let bestPrice, bestListing;
+  try {
+    ({bestPrice, bestListing} = pickBestListing(listings));
+  } catch (e) {
+    return {price: null, outOfStock: true};
+  }
   if (!bestListing) return {price: null, outOfStock: true};
-
-  return finalizeHB(url, pageHtml, bestPrice, bestListing, hbid);
+  try {
+    return await finalizeHB(url, pageHtml, bestPrice, bestListing, hbid);
+  } catch (e) {
+    console.error("finalizeHB hatası", e);
+    return {price: null, outOfStock: true};
+  }
 }
 
 async function finalizeHB(url, pageHtml, bestPrice, bestListing, hbid) {
@@ -136,7 +140,7 @@ async function finalizeHB(url, pageHtml, bestPrice, bestListing, hbid) {
     console.error("finalizeHB: otherMerchants hatası", err);
   }
 
-  return {price: priceStr, outOfStock: false, installment, bestSeller: best, campaigns};
+  return {price: priceStr, outOfStock: false, installment, bestSeller: best, campaigns, deleted: false};
 }
 
 export async function domProductHB(url) {
@@ -269,7 +273,7 @@ export async function domProductHB(url) {
               console.error("domProductHB: otherMerchants hatası", err);
             }
 
-            return {price: priceStr, outOfStock: false, installment, bestSeller, campaigns};
+            return {price: priceStr, outOfStock: false, installment, bestSeller, campaigns, deleted: false};
           },
         },
         ([result]) => {

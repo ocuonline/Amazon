@@ -1,6 +1,6 @@
 //background > notifications.js
 import {getAllFromSync} from "./storage.js";
-import {parsePrice} from "./update.js";
+import {parsePrice} from "./utils.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;

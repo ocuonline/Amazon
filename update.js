@@ -1,7 +1,8 @@
 //background > update.js (bu açıklamayı silme)
+import {LastUpdateTime, parsePrice, buildPrice, formatTL} from "./utils.js";
 import {fetchProductAmazon, domProductAmazon} from "./price.amazon.js";
-import {fetchProductHB, domProductHB} from "./price.hb.js";
 import {sendPriceChange, sendDeletedProduct} from "./sendUrl.js";
+import {fetchProductHB, domProductHB} from "./price.hb.js";
 import {getAllFromSync, saveToSync} from "./storage.js";
 import {sendNotification} from "./notifications.js";
 
@@ -51,7 +52,13 @@ export async function checkPrices(productId = null, onProductChecked = null) {
 
     const isHB = product.url.includes("hepsiburada.com");
     const prevOutOfStock = product.outOfStock;
-    const {newPrice: updatedPrice, outOfStock, deleted} = await updateProductPrice(product, fetchMode);
+    let updateResult;
+    try {
+      updateResult = await updateProductPrice(product, fetchMode);
+    } catch (_) {
+      updateResult = {newPrice: product.newPrice, outOfStock: product.outOfStock};
+    }
+    const {newPrice: updatedPrice, outOfStock, deleted} = updateResult;
     if (deleted) {
       console.log(`Ürün silinmiş -> ${product.id}`);
       await sendDeletedProduct(product.id);
@@ -95,8 +102,16 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       stockInData.stockInDate = Date.now();
       delete stockInData.stockOutDate;
       await browser.storage.local.set({[product.id]: stockInData});
-      await sendNotification(product, product.firstPrice, product.newPrice, "stock");
-      await sendPriceChange(product.id, product.newPrice, isHB ? "hb" : "amazon");
+      try {
+        await sendNotification(product, product.firstPrice, product.newPrice, "stock");
+      } catch (e) {
+        console.error("sendNotification hatası", e);
+      }
+      try {
+        await sendPriceChange(product.id, product.newPrice, isHB ? "hb" : "amazon");
+      } catch (e) {
+        console.error("sendPriceChange hatası", e);
+      }
       priceChanged = true;
     } else if (targetPrice > 0 && newPrice > 0 && newPrice <= targetPrice && updatedPrice !== prevPrice) {
       console.log(`Hedef fiyata ulaştı -> ${product.id}: ${newPrice} <= ${targetPrice}`);
@@ -120,7 +135,11 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       }
     }
 
-    await queueWrite(() => saveToSync([product]));
+    try {
+      await queueWrite(() => saveToSync([product]));
+    } catch (e) {
+      console.error("saveToSync hatası", e);
+    }
 
     if (priceChanged) {
       updateBadgeCount([{...product, prevPrice, outOfStock: product.outOfStock, _prevOutOfStock: prevOutOfStock}]);
@@ -181,7 +200,7 @@ export async function updateProductPrice(product, fetchMode) {
       return {newPrice: product.newPrice, outOfStock: product.outOfStock, deleted: true};
     }
     if (isHB && bestSeller && bestSeller.price > 0) {
-      const bestPriceStr = bestSeller.price.toLocaleString("tr-TR", {maximumFractionDigits: 2});
+      const bestPriceStr = formatTL(bestSeller.price);
       product.url = bestSeller.url;
       const prevPrice = product.newPrice ?? product.firstPrice;
       if (bestPriceStr !== prevPrice) {
@@ -265,7 +284,12 @@ export async function updateBadgeCount(products) {
     {discount: 0, stock: 0, increase: 0},
   );
 
-  const stored = await browser.storage.local.get("badgeCounts");
+  let stored;
+  try {
+    stored = await browser.storage.local.get("badgeCounts");
+  } catch (e) {
+    stored = {};
+  }
   const prev = stored.badgeCounts || {discount: 0, stock: 0, increase: 0};
 
   const merged = {
@@ -289,38 +313,4 @@ export async function updateBadgeCount(products) {
     browser.action.setBadgeText({text: count > 0 ? count.toString() : ""});
     if (count > 0) browser.action.setBadgeBackgroundColor({color});
   }
-}
-
-export async function LastUpdateTime() {
-  const formattedDate = new Date().toLocaleString("tr-TR", {
-    day: "numeric",
-    month: "long",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  await browser.storage.sync.set({lastUpdateTime: formattedDate});
-  console.log("Son Kontrol:", formattedDate);
-  return true;
-}
-
-export function parsePrice(price) {
-  if (!price) return 0;
-  const cleanedPrice = String(price)
-    .replace(/[^0-9,]/g, "")
-    .replace(/\./g, "")
-    .replace(/,/g, ".");
-  const parsed = parseFloat(cleanedPrice);
-  return isNaN(parsed) ? 0 : parsed;
-}
-
-export function buildPrice(whole, fraction) {
-  if (!whole) return null;
-  if (fraction !== null && fraction !== undefined) {
-    const raw = `${whole},${fraction}`.replace(/\./g, "").replace(",", ".");
-    const num = parseFloat(raw);
-    return isNaN(num) ? `${whole},${fraction}`.trim() : num.toLocaleString("tr-TR", {maximumFractionDigits: 2});
-  }
-  const raw = whole.replace(/\s*TL/gi, "").trim().replace(/,+$/, "").replace(/\./g, "").replace(",", ".");
-  const num = parseFloat(raw);
-  return isNaN(num) ? whole.trim() : num.toLocaleString("tr-TR", {maximumFractionDigits: 2});
 }

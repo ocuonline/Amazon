@@ -73,7 +73,7 @@ export async function renderChart(urun_id, data, realProductId = urun_id) {
   data = Array.isArray(data) ? data : [];
 
   const isAmazon = !realProductId.startsWith("HB");
-  const yanyoRaw = isAmazon ? await fetchYanyoData(realProductId) : [];
+  const yanyoRaw = !realProductId.startsWith("HB") ? await fetchYanyoData(realProductId) : [];
 
   const chartDiv = document.createElement("div");
   chartDiv.id = `${urun_id}-echart`;

@@ -503,7 +503,7 @@ async function saveToMysl(id, price, url, name, barcode = null) {
     if (barcode) data.append("barcode", barcode);
     data.append("platform", "hb");
     const auth = await window.getAuthHeaders();
-    const res = await fetch("https://aft.web.tr/extension/SavePrice.php1", {
+    const res = await fetch("https://aft.web.tr/extension/SavePrice.php", {
       method: "POST",
       headers: {"Content-Type": "application/x-www-form-urlencoded", ...auth},
       body: data,

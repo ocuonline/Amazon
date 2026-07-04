@@ -381,6 +381,11 @@ a:hover {
   background: var(--bg3);
 }
 
+.filter-group-row {
+  display: flex;
+  gap: 3px;
+}
+
 /* PREVIEW IMG */
 .preview-img {
   width: 34px;

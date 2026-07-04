@@ -1,5 +1,5 @@
 // background > price.amazon.js (bu açıklamayı silme)
-import {buildPrice} from "./update.js";
+import {buildPrice} from "./utils.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;
@@ -7,12 +7,25 @@ if (typeof browser === "undefined") {
 
 export async function fetchProductAmazon(url) {
   async function fetchHtml(targetUrl) {
-    const res = await fetch(targetUrl);
-    if (!res.ok) {
-      if (res.status === 404) return {html: null, deleted: true};
+    try {
+      const res = await fetch(targetUrl, {
+        credentials: "include",
+        headers: {
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "tr-TR,tr;q=0.9",
+          "Cache-Control": "no-cache",
+          "Upgrade-Insecure-Requests": "1",
+        },
+      });
+      if (!res.ok) {
+        if (res.status === 404) return {html: null, deleted: true};
+        return {html: null, deleted: false};
+      }
+      return {html: await res.text(), deleted: false};
+    } catch (err) {
+      console.error("fetchHtml hatası", err);
       return {html: null, deleted: false};
     }
-    return {html: await res.text(), deleted: false};
   }
 
   let {html, deleted} = await fetchHtml(url);
@@ -24,7 +37,13 @@ export async function fetchProductAmazon(url) {
     const yesHref = html.match(/id="black-curtain-yes-button"[\s\S]*?href="([^"]+)"/)?.[1];
     if (yesHref) {
       const yesUrl = yesHref.startsWith("http") ? yesHref : `https://www.amazon.com.tr${yesHref}`;
-      const result = await fetchHtml(yesUrl);
+      let result;
+      try {
+        result = await fetchHtml(yesUrl);
+      } catch (err) {
+        console.error("black-curtain yesUrl hatası", err);
+        return {price: null, stockCount: null, promoText: null, deleted: false};
+      }
       if (result.html === null) return {price: null, stockCount: null, promoText: null, deleted: result.deleted};
       html = result.html;
     }
@@ -140,91 +159,111 @@ export async function domProductAmazon(url) {
     function listener(id, info) {
       if (id !== tabId || info.status !== "complete") return;
 
-      browser.tabs.get(tabId).then((currentTab) => {
-        if (currentTab.url && currentTab.url.includes("/black-curtain/")) {
-          browser.scripting.executeScript({
-            target: {tabId},
-            func: () => {
-              const yesBtn = document.querySelector("#black-curtain-yes-button a");
-              if (yesBtn) yesBtn.click();
-            },
-          });
-          return; // listener'ı kaldırma, bir sonraki complete'i bekle
-        }
-
-        browser.tabs.onUpdated.removeListener(listener);
-        clearTimeout(timeout);
-
-        if (currentTab.url && !currentTab.url.includes("/dp/") && !currentTab.url.includes("/gp/product/")) {
-          browser.tabs.remove(tabId);
-          resolve({price: null, stockCount: null, promoText: null, deleted: true});
-          return;
-        }
-
-        browser.scripting.executeScript(
-          {
-            target: {tabId},
-            func: () => {
-              const containerIDs = ["corePrice_feature_div", "corePriceDisplay_desktop_feature_div"];
-              let whole = null,
-                fraction = "00";
-              for (const id of containerIDs) {
-                const el = document.getElementById(id);
-                if (!el) continue;
-                whole = el.querySelector(".a-price-whole")?.textContent?.trim().replace(/,+$/, "");
-                fraction = el.querySelector(".a-price-fraction")?.textContent?.replace(/\./g, "").trim() ?? "00";
-                if (whole) break;
-              }
-              if (!whole) {
-                const fallback = document.querySelector(".a-price.a-size-medium .a-offscreen");
-                if (fallback) {
-                  whole = fallback.textContent.trim();
-                  fraction = null;
+      browser.tabs
+        .get(tabId)
+        .then((currentTab) => {
+          if (currentTab.url && (currentTab.url.includes("/black-curtain/") || currentTab.url.includes("/errors/validateCaptcha"))) {
+            browser.scripting.executeScript({
+              target: {tabId},
+              func: () => {
+                const yesBtn = document.querySelector("#black-curtain-yes-button a");
+                if (yesBtn) {
+                  yesBtn.click();
+                  return;
                 }
-              }
-              const stockEl = document.querySelector(".primary-availability-message");
-              const stockMatch = stockEl?.textContent?.match(/Stokta sadece\s+(\d+)\s+adet/i);
-              const stockCount = stockMatch ? parseInt(stockMatch[1], 10) : null;
-              const promoEl = document.querySelector("#promoPriceBlockMessage_feature_div");
-              const promoText = promoEl
-                ? promoEl.innerText
-                    .replace(/\s+/g, " ")
-                    .replace(/<script[\s\S]*?<\/script>/gi, "")
-                    .replace(/<style[\s\S]*?<\/style>/gi, "")
-                    .replace(/12 aya varan taksit[\s\S]*/i, "")
-                    .replace(/Taksitler[\s\S]*/i, "")
-                    .replace(/\{[\s\S]*\}/g, "")
-                    .replace(/Kaydol\s*/gi, "")
-                    .replace(/Kayıtlı\s*/gi, "")
-                    .replace(/Daha fazla bilgi alın\s*/gi, "")
-                    .replace(/(.{20,}?)\s+\1/g, "$1")
-                    .trim() || null
-                : null;
-              let installment = 0;
-              document.querySelectorAll('[id$="-table-container"]').forEach((el) => {
-                el.querySelectorAll("tr").forEach((row) => {
-                  const cells = row.querySelectorAll("td");
-                  if (cells.length < 3) return;
-                  const vadeFarki = cells[2].textContent.trim().toLowerCase();
-                  if (vadeFarki.includes("ücretsiz")) {
-                    const taksit = parseInt(cells[0].textContent.trim());
-                    if (taksit > installment) installment = taksit;
-                  }
-                });
-              });
-              const conditionEl = document.querySelector("#usedOnlyLayoutCondition_feature_div .offer-display-feature-text-message");
-              const condition = conditionEl ? conditionEl.innerText.replace(/İkinci El\s*-\s*/i, "").trim() : null;
-              return {whole, fraction, stockCount, promoText, installment: installment || null, condition};
-            },
-          },
-          ([result]) => {
+                const captchaBtn = document.querySelector('form[action="/errors/validateCaptcha"] button[type="submit"]');
+                if (captchaBtn) captchaBtn.click();
+              },
+            });
+            return;
+          }
+
+          browser.tabs.onUpdated.removeListener(listener);
+          clearTimeout(timeout);
+
+          if (currentTab.url && !currentTab.url.includes("/dp/") && !currentTab.url.includes("/gp/product/")) {
             browser.tabs.remove(tabId);
-            const {whole, fraction, stockCount, promoText, installment, condition} = result?.result ?? {};
-            const price = buildPrice(whole, fraction ?? null);
-            resolve({price, stockCount, promoText, installment, condition});
-          },
-        );
-      });
+            resolve({price: null, stockCount: null, promoText: null, deleted: true});
+            return;
+          }
+
+          browser.scripting.executeScript(
+            {
+              target: {tabId},
+              func: () => {
+                const containerIDs = ["corePrice_feature_div", "corePriceDisplay_desktop_feature_div"];
+                let whole = null,
+                  fraction = "00";
+                for (const id of containerIDs) {
+                  const el = document.getElementById(id);
+                  if (!el) continue;
+                  whole = el.querySelector(".a-price-whole")?.textContent?.trim().replace(/,+$/, "");
+                  fraction = el.querySelector(".a-price-fraction")?.textContent?.replace(/\./g, "").trim() ?? "00";
+                  if (whole) break;
+                }
+                if (!whole) {
+                  const fallback = document.querySelector(".a-price.a-size-medium .a-offscreen");
+                  if (fallback) {
+                    whole = fallback.textContent.trim();
+                    fraction = null;
+                  }
+                }
+                const stockEl = document.querySelector(".primary-availability-message");
+                const stockMatch = stockEl?.textContent?.match(/Stokta sadece\s+(\d+)\s+adet/i);
+                const stockCount = stockMatch ? parseInt(stockMatch[1], 10) : null;
+                const promoEl = document.querySelector("#promoPriceBlockMessage_feature_div");
+                const promoText = promoEl
+                  ? promoEl.innerText
+                      .replace(/\s+/g, " ")
+                      .replace(/<script[\s\S]*?<\/script>/gi, "")
+                      .replace(/<style[\s\S]*?<\/style>/gi, "")
+                      .replace(/12 aya varan taksit[\s\S]*/i, "")
+                      .replace(/Taksitler[\s\S]*/i, "")
+                      .replace(/\{[\s\S]*\}/g, "")
+                      .replace(/Kaydol\s*/gi, "")
+                      .replace(/Kayıtlı\s*/gi, "")
+                      .replace(/Daha fazla bilgi alın\s*/gi, "")
+                      .replace(/(.{20,}?)\s+\1/g, "$1")
+                      .trim() || null
+                  : null;
+                let installment = 0;
+                document.querySelectorAll('[id$="-table-container"]').forEach((el) => {
+                  el.querySelectorAll("tr").forEach((row) => {
+                    const cells = row.querySelectorAll("td");
+                    if (cells.length < 3) return;
+                    const vadeFarki = cells[2].textContent.trim().toLowerCase();
+                    if (vadeFarki.includes("ücretsiz")) {
+                      const taksit = parseInt(cells[0].textContent.trim());
+                      if (taksit > installment) installment = taksit;
+                    }
+                  });
+                });
+                const conditionEl = document.querySelector("#usedOnlyLayoutCondition_feature_div .offer-display-feature-text-message");
+                const condition = conditionEl ? conditionEl.innerText.replace(/İkinci El\s*-\s*/i, "").trim() : null;
+                return {whole, fraction, stockCount, promoText, installment: installment || null, condition};
+              },
+            },
+            ([result]) => {
+              try {
+                browser.tabs.remove(tabId);
+              } catch (_) {}
+              const {whole, fraction, stockCount, promoText, installment, condition} = result?.result ?? {};
+              let price = null;
+              try {
+                price = buildPrice(whole, fraction ?? null);
+              } catch (e) {
+                console.error("buildPrice hatası", e);
+              }
+              resolve({price, stockCount, promoText, installment, condition});
+            },
+          );
+        })
+        .catch((err) => {
+          console.error("tabs.get hatası", err);
+          clearTimeout(timeout);
+          browser.tabs.onUpdated.removeListener(listener);
+          resolve({price: null, stockCount: null, promoText: null, deleted: false});
+        });
     }
     browser.tabs.onUpdated.addListener(listener);
   });

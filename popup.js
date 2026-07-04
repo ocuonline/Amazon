@@ -1,23 +1,16 @@
 // popup.js
 import {getAllFromSync, saveToSync, clearAllStorage, getAllFromDB, saveToDB} from "./storage.js";
 import {renderProductList, sortByOrder, updateProductRow, calcPercent} from "./table.js";
-import {checkPrices, cancelPriceCheck, parsePrice} from "./update.js";
+import {checkPrices, cancelPriceCheck} from "./update.js";
+import {parsePrice, parseDate} from "./utils.js";
 import {showToast} from "./notifications.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;
 }
 
-let sortOrder = 1;
 let groupIndex = 0;
 let activeFilter = null;
-
-function parseDate(d) {
-  if (!d) return 0;
-  const [datePart, timePart] = d.split(" ");
-  const [day, month, year] = datePart.split(".");
-  return new Date(`${year}-${month}-${day}${timePart ? "T" + timePart : ""}`).getTime();
-}
 
 function calcBasePrice(product, percentMode, oldPriceMap) {
   return percentMode === "instant" ? parsePrice(oldPriceMap[product.id]?.oldPrice) || parsePrice(product.firstPrice) : parsePrice(product.firstPrice);
@@ -60,6 +53,13 @@ async function buildAndSaveOrder(list) {
   return order;
 }
 
+async function saveOrderAndRender(list, listElement) {
+  const order = await buildAndSaveOrder(list);
+  const filtered = await applyFilter(list);
+  renderProductList(sortByOrder(filtered, order), listElement);
+  return order;
+}
+
 async function saveLastSort(by, order) {
   await browser.storage.local.set({lastSort: {by, order}});
 }
@@ -90,33 +90,6 @@ async function getSortedProducts(sortBy, order, productsList) {
   return list;
 }
 
-async function sortProducts(sortBy) {
-  const products = await getAllFromSync();
-  let productsList = [...products];
-
-  if (sortBy === "group") {
-    const usedGroups = ["", ...new Set(productsList.map((p) => p.group || "").filter((g) => g !== ""))];
-    groupIndex = (groupIndex + 1) % usedGroups.length;
-    productsList.sort((a, b) => {
-      const aIndex = usedGroups.indexOf(a.group || "");
-      const bIndex = usedGroups.indexOf(b.group || "");
-      const groupA = (aIndex - groupIndex + usedGroups.length) % usedGroups.length;
-      const groupB = (bIndex - groupIndex + usedGroups.length) % usedGroups.length;
-      return groupA - groupB;
-    });
-  } else {
-    productsList = await getSortedProducts(sortBy, sortOrder, productsList);
-  }
-
-  const newOrder = await buildAndSaveOrder(productsList);
-  await saveLastSort(sortBy, sortOrder);
-  sortOrder *= -1;
-  const filteredList = await applyFilter(productsList);
-  renderProductList(sortByOrder(filteredList, newOrder), document.getElementById("product-list"));
-  updateSortMenuIndicator(sortBy, sortOrder);
-  updateSortBtnIcon(sortBy, sortOrder);
-}
-
 const SORT_ICONS = {name: "🔤", date: "📅", Nprice: "💰", Ndate: "🕒", percent: "📊"};
 
 function updateSortBtnIcon(sortBy, order) {
@@ -140,6 +113,35 @@ function updateSortMenuIndicator(sortBy, order) {
   });
 }
 
+async function sortProducts(sortBy, productList) {
+  const products = await getAllFromSync();
+  let productsList = [...products];
+
+  const {lastSort: prev} = await browser.storage.local.get("lastSort");
+  const nextOrder = prev?.by === sortBy ? (prev.order ?? 1) * -1 : 1;
+
+  if (sortBy === "group") {
+    const usedGroups = ["", ...new Set(productsList.map((p) => p.group || "").filter((g) => g !== ""))];
+    groupIndex = (groupIndex + 1) % usedGroups.length;
+    productsList.sort((a, b) => {
+      const aIndex = usedGroups.indexOf(a.group || "");
+      const bIndex = usedGroups.indexOf(b.group || "");
+      const groupA = (aIndex - groupIndex + usedGroups.length) % usedGroups.length;
+      const groupB = (bIndex - groupIndex + usedGroups.length) % usedGroups.length;
+      return groupA - groupB;
+    });
+  } else {
+    productsList = await getSortedProducts(sortBy, nextOrder, productsList);
+  }
+
+  await saveLastSort(sortBy, nextOrder);
+  const order = await buildAndSaveOrder(productsList);
+  const filtered = await applyFilter(productsList);
+  renderProductList(sortByOrder(filtered, order), productList);
+  updateSortMenuIndicator(sortBy, nextOrder);
+  updateSortBtnIcon(sortBy, nextOrder);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const feedbackButton = document.getElementById("feedback-button");
   const deleteAllButton = document.getElementById("delete-all");
@@ -158,7 +160,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   browser.storage.local.get("lastSort").then((result) => {
     if (result.lastSort) {
-      sortOrder = result.lastSort.order;
       updateSortMenuIndicator(result.lastSort.by, result.lastSort.order);
       updateSortBtnIcon(result.lastSort.by, result.lastSort.order);
     }
@@ -228,15 +229,19 @@ document.addEventListener("DOMContentLoaded", () => {
     browser.runtime.sendMessage({action: "clearBadge"});
   });
 
-  async function renderWithOrder(products, notFoundMsg = null) {
-    const order = await getAllFromDB();
-    renderProductList(sortByOrder(await applyFilter(products), order), productList, null, notFoundMsg);
-  }
-
   async function filterProductsByName(query) {
     const products = await getAllFromSync();
     const filtered = products.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()) || p.id.toLowerCase().includes(query.toLowerCase()));
-    await renderWithOrder(filtered);
+    const order = await getAllFromDB();
+    renderProductList(sortByOrder(await applyFilter(filtered), order), productList);
+  }
+
+  async function renderFiltered(products, order = null, notFoundMsg = null, save = false) {
+    const resolvedOrder = order ?? (await getAllFromDB());
+    if (save) await saveToDB(resolvedOrder);
+    const filtered = await applyFilter(products);
+    renderProductList(sortByOrder(filtered, resolvedOrder), productList, null, notFoundMsg);
+    return resolvedOrder;
   }
 
   async function updateLastUpdateTime() {
@@ -327,7 +332,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setFilterIcon("all");
       filterBtn.classList.remove("active");
       const products = await getAllFromSync();
-      await renderWithOrder(products);
+      await renderFiltered(products);
     });
 
     filterBtn.addEventListener("click", (e) => {
@@ -355,7 +360,7 @@ document.addEventListener("DOMContentLoaded", () => {
         filterBtn.classList.toggle("active", activeFilter !== "all");
 
         const products = await getAllFromSync();
-        await renderWithOrder(products, "Bu filtreye uygun ürün bulunamadı.");
+        await renderFiltered(products, null, "Bu filtreye uygun ürün bulunamadı.");
       });
     });
   }
@@ -381,7 +386,7 @@ document.addEventListener("DOMContentLoaded", () => {
     settingsButton.addEventListener("click", () => {
       browser.runtime.openOptionsPage();
     });
-    productGroupHeader.addEventListener("click", () => sortProducts("group"));
+    productGroupHeader.addEventListener("click", () => sortProducts("group", productList));
 
     const percentModeBtn = document.getElementById("percent-mode-btn");
 
@@ -407,10 +412,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (lastSort?.by === "percent") {
         const sorted = await getSortedProducts("percent", -lastSort.order, products);
-        const newOrder = await buildAndSaveOrder(sorted);
-        renderProductList(sortByOrder(await applyFilter(sorted), newOrder), productList);
+        await saveOrderAndRender(sorted, productList);
       } else {
-        await renderWithOrder(products);
+        await renderFiltered(products);
       }
     });
     const sortBtn = document.getElementById("sort-btn");
@@ -425,7 +429,7 @@ document.addEventListener("DOMContentLoaded", () => {
     sortMenu.querySelectorAll("[data-sort-by]").forEach((option) => {
       option.addEventListener("click", (e) => {
         e.stopPropagation();
-        sortProducts(option.dataset.sortBy);
+        sortProducts(option.dataset.sortBy, productList);
       });
     });
 

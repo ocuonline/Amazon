@@ -1,8 +1,9 @@
 // popup > table.js
 import {getAllFromSync, saveToSync, removeFromSync, getAllFromDB, saveToDB} from "./storage.js";
 import {fetchProductData, renderChart} from "./chart.popup.js";
-import {checkPrices, parsePrice} from "./update.js";
+import {formatDate, getTimeAgo, formatTL, parsePrice} from "./utils.js";
 import {showToast} from "./notifications.js";
+import {checkPrices} from "./update.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;
@@ -31,12 +32,6 @@ export function sortByOrder(products, order) {
   });
 }
 
-function formatTL(val) {
-  const num = parseFloat(String(val).replace(",", "."));
-  if (isNaN(num)) return val;
-  return num.toLocaleString("tr-TR", {minimumFractionDigits: 0, maximumFractionDigits: 2});
-}
-
 export function openAlarmModal(product, alarmWrapper, oldPriceFormatted) {
   const alarmTextNode = alarmWrapper.lastChild;
   const modal = document.getElementById("alarm-modal");
@@ -45,6 +40,8 @@ export function openAlarmModal(product, alarmWrapper, oldPriceFormatted) {
   const cancelBtn = document.getElementById("modal-cancel");
   const deleteBtn = document.getElementById("modal-delete-target");
   const productName = document.getElementById("modal-product-name");
+  const ac = new AbortController();
+  const sig = ac.signal;
 
   productName.textContent = product.name;
   const initialVal = product.targetPrice || parsePrice(product.firstPrice) || "";
@@ -64,19 +61,17 @@ export function openAlarmModal(product, alarmWrapper, oldPriceFormatted) {
     });
     pctRow.appendChild(btn);
   });
+  document.getElementById("modal-pct-row")?.remove();
   input.insertAdjacentElement("afterend", pctRow);
 
   setTimeout(() => input.focus(), 50);
 
   const errorDiv = document.getElementById("modal-alarm-error");
   const close = () => {
-    document.getElementById("modal-pct-row")?.remove();
+    pctRow.remove();
     modal.style.display = "none";
     errorDiv.textContent = "";
-    saveBtn.replaceWith(saveBtn.cloneNode(true));
-    cancelBtn.replaceWith(cancelBtn.cloneNode(true));
-    deleteBtn.replaceWith(deleteBtn.cloneNode(true));
-    input.replaceWith(input.cloneNode(true));
+    ac.abort();
   };
 
   const save = async () => {
@@ -109,30 +104,38 @@ export function openAlarmModal(product, alarmWrapper, oldPriceFormatted) {
     close();
   };
 
-  saveBtn.addEventListener("click", save);
-  cancelBtn.addEventListener("click", close);
-  deleteBtn.addEventListener("click", async () => {
-    product.targetPrice = null;
-    alarmTextNode.textContent = ` ${oldPriceFormatted || "—"}`;
-    const allProducts = await getAllFromSync();
-    const idx = allProducts.findIndex((p) => p.id === product.id);
-    if (idx >= 0) {
-      allProducts[idx].targetPrice = null;
-      await saveToSync(allProducts);
-    }
-    close();
-  });
+  saveBtn.addEventListener("click", save, {signal: sig});
+  cancelBtn.addEventListener("click", close, {signal: sig});
+  deleteBtn.addEventListener(
+    "click",
+    async () => {
+      product.targetPrice = null;
+      alarmTextNode.textContent = ` ${oldPriceFormatted || "—"}`;
+      const allProducts = await getAllFromSync();
+      const idx = allProducts.findIndex((p) => p.id === product.id);
+      if (idx >= 0) {
+        allProducts[idx].targetPrice = null;
+        await saveToSync(allProducts);
+      }
+      close();
+    },
+    {signal: sig},
+  );
   modal.addEventListener(
     "click",
     (e) => {
       if (e.target === modal) close();
     },
-    {once: true},
+    {signal: sig},
   );
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") save();
-    if (e.key === "Escape") close();
-  });
+  input.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key === "Enter") save();
+      if (e.key === "Escape") close();
+    },
+    {signal: sig},
+  );
 
   input.addEventListener("input", (e) => {
     const pos = e.target.selectionStart;
@@ -146,21 +149,33 @@ export function openAlarmModal(product, alarmWrapper, oldPriceFormatted) {
 }
 
 export async function renderProductList(products, productList, order = null, emptyMessage = "Henüz ürün takip edilmiyor.") {
+  setupProductListEvents(productList);
   productList.textContent = "";
 
   if (!products.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = emptyMessage;
+    empty.textContent = emptyMessage ?? "Henüz ürün takip edilmiyor.";
     productList.appendChild(empty);
     return;
   }
 
   const resolvedOrder = order ?? (await getAllFromDB());
   const picMap = new Map(resolvedOrder.map((o) => [o.id, o.pic]));
-  for (const [index, product] of sortByOrder(products, resolvedOrder).entries()) {
-    productList.appendChild(await createProductRow(product, index, productList, resolvedOrder, picMap));
-  }
+  const sortedProducts = products;
+
+  const [{percentMode = "general"}, localDataResult] = await Promise.all([
+    browser.storage.local.get("percentMode"),
+    browser.storage.local.get(sortedProducts.map((p) => p.id)),
+  ]);
+
+  const rows = await Promise.all(
+    sortedProducts.map((product, index) =>
+      createProductRow(product, index, productList, resolvedOrder, picMap, percentMode, localDataResult[product.id] || {}),
+    ),
+  );
+
+  rows.forEach((row) => productList.appendChild(row));
 }
 
 document.addEventListener("click", (event) => {
@@ -173,14 +188,9 @@ document.addEventListener("click", (event) => {
 
 const GROUPS = ["🔴", "🟡", "🟢"];
 
-export async function createProductRow(product, index, productList, order, picMap = new Map()) {
-  const productRow = document.createElement("div");
-  productRow.className = "product-row";
-
-  // Tekil kontrol hücresi
+function createCheckCell(product) {
   const checkCell = document.createElement("div");
   checkCell.className = "col-check";
-
   const checkBtn = document.createElement("button");
   checkBtn.id = `check-btn-${product.id}`;
   checkBtn.className = "check-btn";
@@ -188,41 +198,16 @@ export async function createProductRow(product, index, productList, order, picMa
   syncIcon.className = "material-icons icon-small";
   syncIcon.textContent = "sync";
   checkBtn.appendChild(syncIcon);
-
-  checkBtn.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    const icon = checkBtn.querySelector("span");
-    icon.classList.add("spinning");
-    checkBtn.disabled = true;
-
-    try {
-      await checkPrices(product.id);
-      await updateProductRow(product.id, productList);
-      setCheckedState(document.getElementById(`check-btn-${product.id}`));
-    } catch {
-      icon.classList.remove("spinning");
-      checkBtn.disabled = false;
-    }
-  });
-
-  function setCheckedState(btn) {
-    const icon = btn.querySelector("span");
-    icon.classList.remove("spinning");
-    icon.classList.add("checked");
-    btn.disabled = false;
-  }
-
   checkCell.appendChild(checkBtn);
-  productRow.appendChild(checkCell);
+  return checkCell;
+}
 
-  // Grup hücresi
+function createGroupCell(product, order, productList) {
   const groupCell = document.createElement("div");
   groupCell.className = "col-group";
-
   const groupButton = document.createElement("button");
   groupButton.className = "group-btn";
   groupButton.title = "Grup Seç";
-
   product.group = product.group || "";
   groupButton.textContent = product.group ? product.group : "+";
 
@@ -264,23 +249,14 @@ export async function createProductRow(product, index, productList, order, picMa
 
   groupCell.appendChild(groupButton);
   groupCell.appendChild(groupMenu);
-  productRow.appendChild(groupCell);
+  return groupCell;
+}
 
-  // Resim hücresi
+function createPictureCell(product, picMap) {
   const picCell = document.createElement("div");
   picCell.className = "col-pic";
   const previewImg = document.createElement("img");
   previewImg.className = "preview-img";
-
-  picCell.addEventListener("mouseenter", () => {
-    const allRows = document.querySelectorAll(".product-row");
-    const isFirst = productRow === allRows[0];
-    const isLast = productRow === allRows[allRows.length - 1] && allRows.length > 1;
-    previewImg.classList.add(isLast ? "preview-img-zoom-up" : isFirst ? "preview-img-zoom-down" : "preview-img-zoom");
-  });
-  picCell.addEventListener("mouseleave", () => {
-    previewImg.classList.remove("preview-img-zoom", "preview-img-zoom-up", "preview-img-zoom-down");
-  });
 
   const pic = picMap.get(product.id);
   if (pic) {
@@ -293,9 +269,10 @@ export async function createProductRow(product, index, productList, order, picMa
     e.stopPropagation();
     navigator.clipboard.writeText(product.id);
   });
-  productRow.appendChild(picCell);
+  return picCell;
+}
 
-  // Ürün adı
+function createNameCell(product, localData) {
   const nameCell = document.createElement("div");
   nameCell.className = "col-name";
   const link = document.createElement("a");
@@ -316,29 +293,18 @@ export async function createProductRow(product, index, productList, order, picMa
   const alarmWrapper = document.createElement("span");
   alarmWrapper.className = "alarm-wrapper";
   alarmWrapper.title = "Hedef fiyat belirle";
+  alarmWrapper.dataset.oldPriceFormatted = oldPriceFormatted;
   const alarmIcon = document.createElement("span");
   alarmIcon.className = "material-icons alarm-icon";
   alarmIcon.textContent = "alarm";
   alarmWrapper.appendChild(alarmIcon);
   alarmWrapper.appendChild(document.createTextNode(` ${displayTarget}`));
+  alarmWrapper._product = product;
   if (product.targetPrice) alarmWrapper.classList.add("alarm-active");
-
-  alarmWrapper.addEventListener("click", (e) => {
-    e.stopPropagation();
-    openAlarmModal(product, alarmWrapper, oldPriceFormatted);
-  });
-
-  const percentMode = (await browser.storage.local.get("percentMode")).percentMode ?? "general";
-  const localData = (await browser.storage.local.get(product.id))[product.id] || {};
-  const oldPriceRaw = localData.oldPrice ?? null;
-
-  const fetched = parsePrice(product.newPrice);
-  const basePrice = percentMode === "instant" && oldPriceRaw ? parsePrice(oldPriceRaw) : fetched > 0 ? parsePrice(product.firstPrice) || 0 : 0;
 
   metaDiv.appendChild(metaLeft);
   metaDiv.appendChild(alarmWrapper);
 
-  // Stok durumu badge (hedef fiyattan sonra)
   if (product.deleted) {
     addBadge(metaDiv, "promo-badge promo-badge-out", "Ürün Silinmiş", "Ürün Amazondan Silinmiş");
   } else if (product.outOfStock) {
@@ -349,37 +315,46 @@ export async function createProductRow(product, index, productList, order, picMa
   nameLine.appendChild(link);
   nameCell.appendChild(nameLine);
 
-  {
-    const productData = localData;
-    const promo = productData.promoText;
-    if (promo) {
-      const lines = promo
-        .replace(/Kampanya ürünlerini gör/gi, "")
-        .replace(/Uygun ürünler/gi, "")
-        .replace(/Koşullar/gi, "")
-        .split(/(?=Prime üyelerine|Kampanyalar|Ödeme esnasında)/i)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      lines.forEach((line) => {
-        const isPrime = /prime/i.test(line);
-        addBadge(metaDiv, `promo-badge ${isPrime ? "promo-badge-prime" : "promo-badge-promo"}`, "P", line);
-      });
-    }
-    if (productData.installment) {
-      addBadge(metaDiv, "promo-badge promo-badge-promo", `${productData.installment} Taksit`, `Peşin fiyatına ${productData.installment} taksit`);
-    }
-
-    if (isHB && productData.campaigns?.length) {
-      productData.campaigns.forEach((c) => {
-        addBadge(metaDiv, "promo-badge promo-badge-campaign", "K", typeof c === "string" ? c : (c?.text?.trim() ?? ""));
-      });
-    }
+  const promo = localData.promoText;
+  if (promo) {
+    const lines = promo
+      .replace(/Kampanya ürünlerini gör/gi, "")
+      .replace(/Uygun ürünler/gi, "")
+      .replace(/Koşullar/gi, "")
+      .split(/(?=Prime üyelerine|Kampanyalar|Ödeme esnasında)/i)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    lines.forEach((line) => {
+      const isPrime = /prime/i.test(line);
+      addBadge(metaDiv, `promo-badge ${isPrime ? "promo-badge-prime" : "promo-badge-promo"}`, "P", line);
+    });
+  }
+  if (localData.installment) {
+    addBadge(metaDiv, "promo-badge promo-badge-promo", `${localData.installment} Taksit`, `Peşin fiyatına ${localData.installment} taksit`);
+  }
+  if (isHB && localData.campaigns?.length) {
+    localData.campaigns.forEach((c) => {
+      addBadge(metaDiv, "promo-badge promo-badge-campaign", "K", typeof c === "string" ? c : (c?.text?.trim() ?? ""));
+    });
   }
 
   nameCell.appendChild(metaDiv);
-  productRow.appendChild(nameCell);
 
-  // Yeni fiyat
+  if (localData.stockIn) {
+    addBadge(metaDiv, "promo-badge promo-badge-in", "Stoğa Girdi", localData.stockInDate ? formatDate(localData.stockInDate) : "");
+  }
+  const count = localData.stockCount;
+  if (count !== undefined) {
+    addBadge(metaDiv, "stock-badge", count, `Stokta sadece ${count} adet kaldı.`, alarmWrapper);
+  }
+  if (localData.condition) {
+    addBadge(metaDiv, "promo-badge promo-badge-condition", localData.condition, `İkinci El Ürün Durumu: ${localData.condition}`, alarmWrapper);
+  }
+
+  return {nameCell, alarmWrapper};
+}
+
+function createPriceCell(product, percentMode, oldPriceRaw) {
   const newPriceCell = document.createElement("div");
   newPriceCell.className = "col-price price-cell";
   const {firstPrice: oldPrice, newPrice} = product;
@@ -407,35 +382,10 @@ export async function createProductRow(product, index, productList, order, picMa
     newPriceCell.appendChild(subPrice);
     newPriceCell.appendChild(timeAgo);
   }
-  productRow.appendChild(newPriceCell);
+  return {newPriceCell, priceText};
+}
 
-  {
-    const productData = localData;
-
-    if (productData.stockIn && priceText && product.outOfStock === false) {
-      const old = parsePrice(product.firstPrice);
-      const cur = parsePrice(product.newPrice);
-      if (old > 0 && cur === old) {
-        priceText.classList.remove("price-down", "price-up", "price-same");
-        priceText.classList.add("price-new");
-      }
-    }
-
-    if (productData.stockIn) {
-      addBadge(metaDiv, "promo-badge promo-badge-in", "Stoğa Girdi", productData.stockInDate ? formatDate(productData.stockInDate) : "");
-    }
-
-    const count = productData.stockCount;
-    if (count !== undefined) {
-      addBadge(metaDiv, "stock-badge", count, `Stokta sadece ${count} adet kaldı.`, alarmWrapper);
-    }
-
-    if (productData.condition) {
-      addBadge(metaDiv, "promo-badge promo-badge-condition", productData.condition, `İkinci El Ürün Durumu: ${productData.condition}`, alarmWrapper);
-    }
-  }
-
-  // Yüzde değişim
+function createPercentCell(fetched, basePrice) {
   const percentCell = document.createElement("div");
   percentCell.className = "col-percent percent-cell";
 
@@ -457,29 +407,126 @@ export async function createProductRow(product, index, productList, order, picMa
     percentCell.appendChild(percentLine);
     percentCell.appendChild(diffLine);
   }
-  productRow.appendChild(percentCell);
+  return percentCell;
+}
 
-  // Silme butonu
+function createDeleteCell() {
   const deleteCell = document.createElement("div");
   deleteCell.className = "col-delete";
   const deleteButton = document.createElement("button");
   deleteButton.className = "delete-btn";
   deleteButton.title = "Ürünü Sil";
   deleteButton.textContent = "x";
-  deleteButton.onclick = () => removeProduct(product.id, productList);
   deleteCell.appendChild(deleteButton);
-  productRow.appendChild(deleteCell);
-  productRow.addEventListener("click", (e) => {
+  return deleteCell;
+}
+
+export async function createProductRow(product, index, productList, order, picMap = new Map(), percentMode = "general", localData = {}) {
+  const productRow = document.createElement("div");
+  productRow.className = "product-row";
+  productRow.dataset.id = product.id;
+  const oldPriceRaw = localData.oldPrice ?? null;
+  const fetched = parsePrice(product.newPrice);
+  const basePrice = percentMode === "instant" && oldPriceRaw ? parsePrice(oldPriceRaw) : fetched > 0 ? parsePrice(product.firstPrice) || 0 : 0;
+
+  productRow.appendChild(createCheckCell(product));
+  productRow.appendChild(createGroupCell(product, order, productList));
+  productRow.appendChild(createPictureCell(product, picMap));
+
+  const {nameCell} = createNameCell(product, localData);
+  productRow.appendChild(nameCell);
+
+  const {newPriceCell, priceText} = createPriceCell(product, percentMode, oldPriceRaw);
+  productRow.appendChild(newPriceCell);
+
+  if (localData.stockIn && priceText && product.outOfStock === false) {
+    const old = parsePrice(product.firstPrice);
+    const cur = parsePrice(product.newPrice);
+    if (old > 0 && cur === old) {
+      priceText.classList.remove("price-down", "price-up", "price-same");
+      priceText.classList.add("price-new");
+    }
+  }
+
+  productRow.appendChild(createPercentCell(fetched, basePrice));
+  productRow.appendChild(createDeleteCell());
+
+  return productRow;
+}
+
+export function setupProductListEvents(productList) {
+  if (productList._delegated) return;
+  productList._delegated = true;
+
+  productList.addEventListener("click", async (e) => {
+    const row = e.target.closest(".product-row");
+    if (!row) return;
+    const id = row.dataset.id;
+
+    const deleteBtn = e.target.closest(".delete-btn");
+    if (deleteBtn) return removeProduct(id, productList);
+
+    const checkBtn = e.target.closest(".check-btn");
+    if (checkBtn) {
+      const icon = checkBtn.querySelector("span");
+      icon.classList.add("spinning");
+      checkBtn.disabled = true;
+      try {
+        await checkPrices(id);
+        await updateProductRow(id, productList);
+        const newBtn = document.getElementById(`check-btn-${id}`);
+        if (newBtn) {
+          const newIcon = newBtn.querySelector("span");
+          newIcon.classList.remove("spinning");
+          newIcon.classList.add("checked");
+          newBtn.disabled = false;
+        }
+      } catch {
+        icon.classList.remove("spinning");
+        checkBtn.disabled = false;
+      }
+      return;
+    }
+
+    const alarmWrapper = e.target.closest(".alarm-wrapper");
+    if (alarmWrapper) {
+      const product = alarmWrapper._product;
+      if (product) openAlarmModal(product, alarmWrapper, alarmWrapper.dataset.oldPriceFormatted || "");
+      return;
+    }
+
     const isInteractive = e.target.closest("button, a");
     if (isInteractive) return;
     const selection = window.getSelection();
     if (selection && selection.toString().length > 0) return;
-    toggleAccordion(index, product, productList);
+    const index = Array.from(productList.querySelectorAll(".product-row")).indexOf(row);
+    const products = await getAllFromSync();
+    const product = products.find((p) => p.id === id);
+    if (product) toggleAccordion(index, product, productList);
   });
-  return productRow;
+
+  productList.addEventListener("mouseover", (e) => {
+    const picCell = e.target.closest(".col-pic");
+    if (!picCell) return;
+    const previewImg = picCell.querySelector(".preview-img");
+    if (!previewImg) return;
+    const allRows = productList.querySelectorAll(".product-row");
+    const row = picCell.closest(".product-row");
+    const isFirst = row === allRows[0];
+    const isLast = row === allRows[allRows.length - 1] && allRows.length > 1;
+    previewImg.classList.add(isLast ? "preview-img-zoom-up" : isFirst ? "preview-img-zoom-down" : "preview-img-zoom");
+  });
+
+  productList.addEventListener("mouseout", (e) => {
+    const picCell = e.target.closest(".col-pic");
+    if (!picCell) return;
+    const previewImg = picCell.querySelector(".preview-img");
+    if (previewImg) previewImg.classList.remove("preview-img-zoom", "preview-img-zoom-up", "preview-img-zoom-down");
+  });
 }
 
 let lastExpandedIndex = null;
+const fetchingSet = new Set();
 
 export function toggleAccordion(index, product, productList) {
   const existingAccordion = document.querySelector(".accordion");
@@ -497,6 +544,8 @@ export function toggleAccordion(index, product, productList) {
   const productRow = productList.querySelectorAll(".product-row")[index];
   productRow.classList.add("accordion-open");
 
+  if (fetchingSet.has(index)) return;
+  fetchingSet.add(index);
   fetchProductData(product.id)
     .then((data) => {
       const accordion = document.createElement("div");
@@ -521,31 +570,15 @@ export function toggleAccordion(index, product, productList) {
 
       chartDiv.classList.replace("chart-hidden", "chart-visible");
       noData.classList.replace("no-data-visible", "no-data-hidden");
-      renderChart(chartDiv.id, data ?? [], product.id);
+      renderChart(`chart-${index}`, data ?? [], product.id);
     })
     .then(() => {
       lastExpandedIndex = index;
     })
-    .catch(() => showToast("Veri alınırken hata oluştu.", "error"));
-}
-
-function formatDate(timestamp) {
-  return new Date(timestamp).toLocaleString("tr-TR", {
-    day: "numeric",
-    month: "long",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function getTimeAgo(timestamp) {
-  const ts = timestamp > 1e12 ? timestamp : timestamp * 1000;
-  const diff = Math.floor((Date.now() - ts) / 1000);
-  if (diff < 60) return "az önce";
-  if (diff < 3600) return `${Math.floor(diff / 60)} dk önce`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} saat önce`;
-  if (diff < 2592000) return `${Math.floor(diff / 86400)} gün önce`;
-  return `${Math.floor(diff / 2592000)} ay önce`;
+    .catch(() => showToast("Veri alınırken hata oluştu.", "error"))
+    .finally(() => {
+      fetchingSet.delete(index);
+    });
 }
 
 export async function updateProductRow(id, productList) {
@@ -556,7 +589,9 @@ export async function updateProductRow(id, productList) {
   const picMap = new Map(order.map((o) => [o.id, o.pic]));
   const oldRow = document.getElementById(`check-btn-${id}`)?.closest(".product-row");
   const index = Array.from(productList.querySelectorAll(".product-row")).indexOf(oldRow);
-  const newRow = await createProductRow(product, index, productList, order, picMap);
+  const [{percentMode = "general"}, localDataResult] = await Promise.all([browser.storage.local.get("percentMode"), browser.storage.local.get(product.id)]);
+  const localData = localDataResult[product.id] || {};
+  const newRow = await createProductRow(product, index, productList, order, picMap, percentMode, localData);
   if (oldRow) oldRow.replaceWith(newRow);
 }
 
@@ -574,7 +609,12 @@ export async function removeProduct(id, productList) {
 
     const row = document.getElementById(`check-btn-${id}`)?.closest(".product-row");
     if (row) row.remove();
-    if (!sorted.length) renderProductList(sorted, productList);
+    if (!sorted.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "Henüz ürün takip edilmiyor.";
+      productList.appendChild(empty);
+    }
     showToast("Ürün listeden silindi.", "success");
   } catch (error) {
     showToast("Ürünü silerken hata oluştu.", "error");
