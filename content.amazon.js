@@ -146,6 +146,7 @@ function addFollowButton() {
     button.addEventListener("click", toggleFollow);
     alarmButton.addEventListener("click", () => openAlarmModal(asin, product, alarmButton));
     window.getPriceHistory(asin);
+    window.fetchCanonicalPrice(asin);
   });
 }
 
@@ -295,8 +296,10 @@ async function openAlarmModal(asin, product, alarmButton) {
     const index = followList.findIndex((item) => item.id === asin);
 
     if (index === -1) {
-      const {id, name, url, firstPrice} = product;
-      followList.push(buildFollowEntry(product, {targetPrice: cleanPrice(val)}));
+      const {id, name, url} = product;
+      const firstPrice = (await fetchCanonicalPrice(id)) || product.firstPrice;
+      const productWithCanonical = {...product, firstPrice};
+      followList.push(buildFollowEntry(productWithCanonical, {targetPrice: cleanPrice(val)}));
       const result = await saveToSync(followList);
       if (!result.success) {
         errorDiv.textContent = result.message;
@@ -348,8 +351,10 @@ async function toggleFollow() {
     const date = new Date().toLocaleDateString("tr-TR");
 
     if (index === -1) {
-      const {id, name, url, firstPrice} = product;
-      followList.push(buildFollowEntry(product));
+      const {id, name, url} = product;
+      const firstPrice = (await fetchCanonicalPrice(id)) || product.firstPrice;
+      const productWithCanonical = {...product, firstPrice};
+      followList.push(buildFollowEntry(productWithCanonical));
 
       const result = await saveToSync(followList);
       if (!result.success) {

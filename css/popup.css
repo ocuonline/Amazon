@@ -43,12 +43,15 @@ body {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  width: 780px;
-  max-width: 780px;
-  min-height: 100px;
+  width: 800px;
   font-size: 13px;
-  overflow-x: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: 800px;
+  max-height: 600px;
+  margin: 0;
+  overflow: hidden;
 }
 
 button {
@@ -296,7 +299,15 @@ a:hover {
 
 /* PRODUCT ROWS */
 #product-list {
+  flex: 1 1 auto;
+  min-height: 0;
   background: var(--bg);
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  /* Firefox */
+  scrollbar-width: auto;
+  scrollbar-color: var(--border-hover) var(--bg);
 }
 
 .product-row {
@@ -911,7 +922,7 @@ a:hover {
 }
 
 #percent-mode-btn {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   min-width: 24px;
   color: var(--text2);

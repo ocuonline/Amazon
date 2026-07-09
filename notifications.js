@@ -7,7 +7,7 @@ if (typeof browser === "undefined") {
 }
 
 export async function sendNotification(product, oldPrice, newPrice, type) {
-  const settings = await getAllFromSync("settings");
+  const {settings = {}} = await browser.storage.sync.get("settings");
   const threshold = parseFloat(settings.priceChangeThreshold);
   const oldPriceValue = parsePrice(oldPrice);
   const newPriceValue = parsePrice(newPrice);

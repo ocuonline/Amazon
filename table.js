@@ -32,6 +32,9 @@ export function sortByOrder(products, order) {
   });
 }
 
+let _alarmPctRow = null;
+let _alarmPctRowPrice = null;
+
 export function openAlarmModal(product, alarmWrapper, oldPriceFormatted) {
   const alarmTextNode = alarmWrapper.lastChild;
   const modal = document.getElementById("alarm-modal");
@@ -49,26 +52,29 @@ export function openAlarmModal(product, alarmWrapper, oldPriceFormatted) {
   modal.style.display = "flex";
 
   const currentPrice = parsePrice(product.firstPrice);
-  const pctRow = document.createElement("div");
-  pctRow.id = "modal-pct-row";
-  [5, 10, 20, 30, 40, 50].forEach((pct) => {
-    const btn = document.createElement("button");
-    btn.textContent = `%${pct}`;
-    btn.type = "button";
-    btn.addEventListener("click", () => {
-      const target = currentPrice * (1 - pct / 100);
-      document.getElementById("modal-alarm-input").value = formatTL(target);
+  if (!_alarmPctRow) {
+    _alarmPctRow = document.createElement("div");
+    _alarmPctRow.id = "modal-pct-row";
+    [5, 10, 20, 30, 40, 50].forEach((pct) => {
+      const btn = document.createElement("button");
+      btn.textContent = `%${pct}`;
+      btn.type = "button";
+      btn.addEventListener("click", () => {
+        const target = _alarmPctRowPrice * (1 - pct / 100);
+        document.getElementById("modal-alarm-input").value = formatTL(target);
+      });
+      _alarmPctRow.appendChild(btn);
     });
-    pctRow.appendChild(btn);
-  });
+  }
+  _alarmPctRowPrice = currentPrice;
   document.getElementById("modal-pct-row")?.remove();
-  input.insertAdjacentElement("afterend", pctRow);
+  input.insertAdjacentElement("afterend", _alarmPctRow);
 
   setTimeout(() => input.focus(), 50);
 
   const errorDiv = document.getElementById("modal-alarm-error");
   const close = () => {
-    pctRow.remove();
+    _alarmPctRow?.remove();
     modal.style.display = "none";
     errorDiv.textContent = "";
     ac.abort();
@@ -160,22 +166,19 @@ export async function renderProductList(products, productList, order = null, emp
     return;
   }
 
-  const resolvedOrder = order ?? (await getAllFromDB());
-  const picMap = new Map(resolvedOrder.map((o) => [o.id, o.pic]));
-  const sortedProducts = products;
-
-  const [{percentMode = "general"}, localDataResult] = await Promise.all([
+  const [resolvedOrder, {percentMode = "general"}, localDataResult] = await Promise.all([
+    order ?? getAllFromDB(),
     browser.storage.local.get("percentMode"),
-    browser.storage.local.get(sortedProducts.map((p) => p.id)),
+    browser.storage.local.get(products.map((p) => p.id)),
   ]);
+  const picMap = new Map(resolvedOrder.map((o) => [o.id, o.pic]));
 
   const rows = await Promise.all(
-    sortedProducts.map((product, index) =>
-      createProductRow(product, index, productList, resolvedOrder, picMap, percentMode, localDataResult[product.id] || {}),
-    ),
+    products.map((product) => createProductRow(product, productList, resolvedOrder, picMap, percentMode, localDataResult[product.id] || {})),
   );
-
-  rows.forEach((row) => productList.appendChild(row));
+  const fragment = document.createDocumentFragment();
+  rows.forEach((row) => fragment.appendChild(row));
+  productList.appendChild(fragment);
 }
 
 document.addEventListener("click", (event) => {
@@ -227,7 +230,7 @@ function createGroupCell(product, order, productList) {
         if (i >= 0) {
           products[i].group = product.group;
           await saveToSync(products);
-          renderProductList(sortByOrder(products, order), productList);
+          await updateProductRow(product.id, productList, {products, order});
         }
       } catch {
         showToast("Hata oluştu. Lütfen tekrar deneyin.", "error");
@@ -421,7 +424,7 @@ function createDeleteCell() {
   return deleteCell;
 }
 
-export async function createProductRow(product, index, productList, order, picMap = new Map(), percentMode = "general", localData = {}) {
+export async function createProductRow(product, productList, order, picMap = new Map(), percentMode = "general", localData = {}) {
   const productRow = document.createElement("div");
   productRow.className = "product-row";
   productRow.dataset.id = product.id;
@@ -499,10 +502,9 @@ export function setupProductListEvents(productList) {
     if (isInteractive) return;
     const selection = window.getSelection();
     if (selection && selection.toString().length > 0) return;
-    const index = Array.from(productList.querySelectorAll(".product-row")).indexOf(row);
     const products = await getAllFromSync();
     const product = products.find((p) => p.id === id);
-    if (product) toggleAccordion(index, product, productList);
+    if (product) toggleAccordion(id, product, productList);
   });
 
   productList.addEventListener("mouseover", (e) => {
@@ -527,26 +529,35 @@ export function setupProductListEvents(productList) {
 
 let lastExpandedIndex = null;
 const fetchingSet = new Set();
+const fetchCache = new Map();
 
-export function toggleAccordion(index, product, productList) {
+export function toggleAccordion(id, product, productList) {
   const existingAccordion = document.querySelector(".accordion");
   const prevRow = document.querySelector(".product-row.accordion-open");
   if (prevRow) prevRow.classList.remove("accordion-open");
 
   if (existingAccordion) {
     existingAccordion.remove();
-    if (lastExpandedIndex === index) {
+    if (lastExpandedIndex === id) {
       lastExpandedIndex = null;
       return;
     }
   }
 
-  const productRow = productList.querySelectorAll(".product-row")[index];
+  const productRow = productList.querySelector(`.product-row[data-id="${id}"]`);
+  if (!productRow) return;
   productRow.classList.add("accordion-open");
 
-  if (fetchingSet.has(index)) return;
-  fetchingSet.add(index);
-  fetchProductData(product.id)
+  if (fetchingSet.has(id)) return;
+  fetchingSet.add(id);
+  const cachedData = fetchCache.get(id);
+  (cachedData !== undefined
+    ? Promise.resolve(cachedData)
+    : fetchProductData(product.id).then((data) => {
+        fetchCache.set(id, data);
+        return data;
+      })
+  )
     .then((data) => {
       const accordion = document.createElement("div");
       accordion.className = "accordion accordion-row";
@@ -555,11 +566,11 @@ export function toggleAccordion(index, product, productList) {
       content.className = "accordion-content";
 
       const chartDiv = document.createElement("div");
-      chartDiv.id = `chart-${index}`;
+      chartDiv.id = `chart-${id}`;
       chartDiv.className = "chart-div chart-hidden";
 
       const noData = document.createElement("div");
-      noData.id = `no-data-${index}`;
+      noData.id = `no-data-${id}`;
       noData.className = "no-data-message no-data-visible";
       noData.textContent = "Veri bulunamadı.";
 
@@ -570,28 +581,27 @@ export function toggleAccordion(index, product, productList) {
 
       chartDiv.classList.replace("chart-hidden", "chart-visible");
       noData.classList.replace("no-data-visible", "no-data-hidden");
-      renderChart(`chart-${index}`, data ?? [], product.id);
+      renderChart(`chart-${id}`, data ?? [], product.id);
     })
     .then(() => {
-      lastExpandedIndex = index;
+      lastExpandedIndex = id;
     })
     .catch(() => showToast("Veri alınırken hata oluştu.", "error"))
     .finally(() => {
-      fetchingSet.delete(index);
+      fetchingSet.delete(id);
     });
 }
 
-export async function updateProductRow(id, productList) {
-  const products = await getAllFromSync();
-  const product = products.find((p) => p.id === id);
+export async function updateProductRow(id, productList, {products, order, percentMode, localDataBatch} = {}) {
+  const resolvedProducts = products ?? (await getAllFromSync());
+  const product = resolvedProducts.find((p) => p.id === id);
   if (!product) return;
-  const order = await getAllFromDB();
-  const picMap = new Map(order.map((o) => [o.id, o.pic]));
+  const resolvedOrder = order ?? (await getAllFromDB());
+  const picMap = new Map(resolvedOrder.map((o) => [o.id, o.pic]));
   const oldRow = document.getElementById(`check-btn-${id}`)?.closest(".product-row");
-  const index = Array.from(productList.querySelectorAll(".product-row")).indexOf(oldRow);
-  const [{percentMode = "general"}, localDataResult] = await Promise.all([browser.storage.local.get("percentMode"), browser.storage.local.get(product.id)]);
-  const localData = localDataResult[product.id] || {};
-  const newRow = await createProductRow(product, index, productList, order, picMap, percentMode, localData);
+  const resolvedPercentMode = percentMode ?? (await browser.storage.local.get("percentMode")).percentMode ?? "general";
+  const localData = localDataBatch ? localDataBatch[id] || {} : (await browser.storage.local.get(id))[id] || {};
+  const newRow = await createProductRow(product, productList, resolvedOrder, picMap, resolvedPercentMode, localData);
   if (oldRow) oldRow.replaceWith(newRow);
 }
 

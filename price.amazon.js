@@ -1,5 +1,5 @@
 // background > price.amazon.js (bu açıklamayı silme)
-import {buildPrice} from "./utils.js";
+import {buildPrice, parsePrice, formatTL} from "./utils.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;
@@ -28,9 +28,12 @@ export async function fetchProductAmazon(url) {
     }
   }
 
+  const isProductUrl = url.includes("/dp/") || url.includes("/gp/product/");
   let {html, deleted} = await fetchHtml(url);
-  if (deleted !== undefined && html === null) {
-    return {price: null, stockCount: null, promoText: null, deleted};
+  if (html === null) {
+    if (deleted && !isProductUrl) return {price: null, stockCount: null, promoText: null, outOfStock: false, deleted: true};
+    if (deleted && isProductUrl) return {price: null, stockCount: null, promoText: null, outOfStock: true, deleted: false};
+    return {price: null, stockCount: null, promoText: null, outOfStock: null, deleted: false};
   }
 
   if (html && html.includes("black-curtain-yes-button")) {
@@ -143,7 +146,8 @@ export async function fetchProductAmazon(url) {
         .trim()
     : null;
 
-  return {price, stockCount, promoText, installment: installment || null, condition};
+  const outOfStock = isProductUrl && (!price || parsePrice(price) <= 0);
+  return {price, stockCount, promoText, installment: installment || null, condition, outOfStock};
 }
 
 export async function domProductAmazon(url) {
@@ -152,8 +156,10 @@ export async function domProductAmazon(url) {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       browser.tabs.onUpdated.removeListener(listener);
-      browser.tabs.remove(tabId);
-      resolve({price: null, stockCount: null, promoText: null});
+      try {
+        browser.tabs.remove(tabId);
+      } catch (_) {}
+      resolve({price: null, stockCount: null, promoText: null, outOfStock: true});
     }, 15000);
 
     function listener(id, info) {
@@ -181,82 +187,102 @@ export async function domProductAmazon(url) {
           browser.tabs.onUpdated.removeListener(listener);
           clearTimeout(timeout);
 
-          if (currentTab.url && !currentTab.url.includes("/dp/") && !currentTab.url.includes("/gp/product/")) {
-            browser.tabs.remove(tabId);
-            resolve({price: null, stockCount: null, promoText: null, deleted: true});
+          const tabUrl = currentTab.url ?? url;
+          const isProductUrl = tabUrl.includes("/dp/") || tabUrl.includes("/gp/product/");
+          if (!isProductUrl) {
+            try {
+              browser.tabs.remove(tabId);
+            } catch (_) {}
+            resolve({price: null, stockCount: null, promoText: null, outOfStock: false, deleted: true});
             return;
           }
 
-          browser.scripting.executeScript(
-            {
-              target: {tabId},
-              func: () => {
-                const containerIDs = ["corePrice_feature_div", "corePriceDisplay_desktop_feature_div"];
-                let whole = null,
-                  fraction = "00";
-                for (const id of containerIDs) {
-                  const el = document.getElementById(id);
-                  if (!el) continue;
-                  whole = el.querySelector(".a-price-whole")?.textContent?.trim().replace(/,+$/, "");
-                  fraction = el.querySelector(".a-price-fraction")?.textContent?.replace(/\./g, "").trim() ?? "00";
-                  if (whole) break;
-                }
-                if (!whole) {
-                  const fallback = document.querySelector(".a-price.a-size-medium .a-offscreen");
-                  if (fallback) {
-                    whole = fallback.textContent.trim();
-                    fraction = null;
+          try {
+            browser.scripting.executeScript(
+              {
+                target: {tabId},
+                func: () => {
+                  const containerIDs = ["corePrice_feature_div", "corePriceDisplay_desktop_feature_div"];
+                  let whole = null,
+                    fraction = "00";
+                  for (const id of containerIDs) {
+                    const el = document.getElementById(id);
+                    if (!el) continue;
+                    whole = el.querySelector(".a-price-whole")?.textContent?.trim().replace(/,+$/, "");
+                    fraction = el.querySelector(".a-price-fraction")?.textContent?.replace(/\./g, "").trim() ?? "00";
+                    if (whole) break;
                   }
-                }
-                const stockEl = document.querySelector(".primary-availability-message");
-                const stockMatch = stockEl?.textContent?.match(/Stokta sadece\s+(\d+)\s+adet/i);
-                const stockCount = stockMatch ? parseInt(stockMatch[1], 10) : null;
-                const promoEl = document.querySelector("#promoPriceBlockMessage_feature_div");
-                const promoText = promoEl
-                  ? promoEl.innerText
-                      .replace(/\s+/g, " ")
-                      .replace(/<script[\s\S]*?<\/script>/gi, "")
-                      .replace(/<style[\s\S]*?<\/style>/gi, "")
-                      .replace(/12 aya varan taksit[\s\S]*/i, "")
-                      .replace(/Taksitler[\s\S]*/i, "")
-                      .replace(/\{[\s\S]*\}/g, "")
-                      .replace(/Kaydol\s*/gi, "")
-                      .replace(/Kayıtlı\s*/gi, "")
-                      .replace(/Daha fazla bilgi alın\s*/gi, "")
-                      .replace(/(.{20,}?)\s+\1/g, "$1")
-                      .trim() || null
-                  : null;
-                let installment = 0;
-                document.querySelectorAll('[id$="-table-container"]').forEach((el) => {
-                  el.querySelectorAll("tr").forEach((row) => {
-                    const cells = row.querySelectorAll("td");
-                    if (cells.length < 3) return;
-                    const vadeFarki = cells[2].textContent.trim().toLowerCase();
-                    if (vadeFarki.includes("ücretsiz")) {
-                      const taksit = parseInt(cells[0].textContent.trim());
-                      if (taksit > installment) installment = taksit;
+                  if (!whole) {
+                    const fallback = document.querySelector(".a-price.a-size-medium .a-offscreen");
+                    if (fallback) {
+                      whole = fallback.textContent.trim();
+                      fraction = null;
                     }
+                  }
+                  const stockEl = document.querySelector(".primary-availability-message");
+                  const stockMatch = stockEl?.textContent?.match(/Stokta sadece\s+(\d+)\s+adet/i);
+                  const stockCount = stockMatch ? parseInt(stockMatch[1], 10) : null;
+                  const promoEl = document.querySelector("#promoPriceBlockMessage_feature_div");
+                  const promoText = promoEl
+                    ? promoEl.innerText
+                        .replace(/\s+/g, " ")
+                        .replace(/<script[\s\S]*?<\/script>/gi, "")
+                        .replace(/<style[\s\S]*?<\/style>/gi, "")
+                        .replace(/12 aya varan taksit[\s\S]*/i, "")
+                        .replace(/Taksitler[\s\S]*/i, "")
+                        .replace(/\{[\s\S]*\}/g, "")
+                        .replace(/Kaydol\s*/gi, "")
+                        .replace(/Kayıtlı\s*/gi, "")
+                        .replace(/Daha fazla bilgi alın\s*/gi, "")
+                        .replace(/(.{20,}?)\s+\1/g, "$1")
+                        .trim() || null
+                    : null;
+                  let installment = 0;
+                  document.querySelectorAll('[id$="-table-container"]').forEach((el) => {
+                    el.querySelectorAll("tr").forEach((row) => {
+                      const cells = row.querySelectorAll("td");
+                      if (cells.length < 3) return;
+                      const vadeFarki = cells[2].textContent.trim().toLowerCase();
+                      if (vadeFarki.includes("ücretsiz")) {
+                        const taksit = parseInt(cells[0].textContent.trim());
+                        if (taksit > installment) installment = taksit;
+                      }
+                    });
                   });
-                });
-                const conditionEl = document.querySelector("#usedOnlyLayoutCondition_feature_div .offer-display-feature-text-message");
-                const condition = conditionEl ? conditionEl.innerText.replace(/İkinci El\s*-\s*/i, "").trim() : null;
-                return {whole, fraction, stockCount, promoText, installment: installment || null, condition};
+                  const conditionEl = document.querySelector("#usedOnlyLayoutCondition_feature_div .offer-display-feature-text-message");
+                  const condition = conditionEl ? conditionEl.innerText.replace(/İkinci El\s*-\s*/i, "").trim() : null;
+                  return {whole, fraction, stockCount, promoText, installment: installment || null, condition};
+                },
               },
-            },
-            ([result]) => {
-              try {
-                browser.tabs.remove(tabId);
-              } catch (_) {}
-              const {whole, fraction, stockCount, promoText, installment, condition} = result?.result ?? {};
-              let price = null;
-              try {
-                price = buildPrice(whole, fraction ?? null);
-              } catch (e) {
-                console.error("buildPrice hatası", e);
-              }
-              resolve({price, stockCount, promoText, installment, condition});
-            },
-          );
+              ([result]) => {
+                if (browser.runtime.lastError) {
+                  console.error("domProductAmazon: lastError", browser.runtime.lastError);
+                  try {
+                    browser.tabs.remove(tabId);
+                  } catch (_) {}
+                  return resolve({price: null, stockCount: null, promoText: null, outOfStock: true});
+                }
+                try {
+                  browser.tabs.remove(tabId);
+                } catch (_) {}
+                const {whole, fraction, stockCount, promoText, installment, condition} = result?.result ?? {};
+                let price = null;
+                try {
+                  price = buildPrice(whole, fraction ?? null);
+                } catch (e) {
+                  console.error("buildPrice hatası", e);
+                }
+                const outOfStock = price && parsePrice(price) > 0 ? false : true;
+                resolve({price, stockCount, promoText, installment, condition, outOfStock});
+              },
+            );
+          } catch (err) {
+            console.error("domProductAmazon: executeScript hatası", err);
+            try {
+              browser.tabs.remove(tabId);
+            } catch (_) {}
+            resolve({price: null, stockCount: null, promoText: null, outOfStock: null});
+          }
         })
         .catch((err) => {
           console.error("tabs.get hatası", err);

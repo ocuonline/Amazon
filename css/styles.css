@@ -334,11 +334,12 @@
 }
 
 .cheaper-seller-box {
+  font-size: 14px;
   background-color: #e6f4ea;
   border: 1px solid #34a853;
   border-radius: 6px;
-  padding: 10px 14px;
-  margin-bottom: 8px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
   color: #1e4620;
   font-weight: bold;
 }

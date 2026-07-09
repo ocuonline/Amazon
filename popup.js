@@ -20,11 +20,11 @@ async function getOldPriceMap(products) {
   return browser.storage.local.get(products.map((p) => p.id));
 }
 
-async function applyFilter(products) {
+async function applyFilter(products, {localData, percentMode, oldPriceMap} = {}) {
   if (!activeFilter || activeFilter === "all") return products;
   if (activeFilter === "stock-in") {
-    const localData = await browser.storage.local.get(products.map((p) => p.id));
-    return products.filter((p) => localData[p.id]?.stockIn);
+    const resolved = localData ?? (await browser.storage.local.get(products.map((p) => p.id)));
+    return products.filter((p) => resolved[p.id]?.stockIn);
   }
   if (activeFilter === "stock-out") return products.filter((p) => p.outOfStock === true);
   if (activeFilter === "target") {
@@ -35,11 +35,13 @@ async function applyFilter(products) {
     });
   }
   if (activeFilter === "discount" || activeFilter === "increase") {
-    const {percentMode = "general"} = await browser.storage.local.get("percentMode");
-    const oldPriceMap = await getOldPriceMap(products);
+    const [resolvedMode, resolvedMap] = await Promise.all([
+      percentMode != null ? Promise.resolve(percentMode) : browser.storage.local.get("percentMode").then((r) => r.percentMode ?? "general"),
+      oldPriceMap != null ? Promise.resolve(oldPriceMap) : getOldPriceMap(products),
+    ]);
     return products.filter((p) => {
       const cur = parsePrice(p.newPrice);
-      const base = calcBasePrice(p, percentMode, oldPriceMap);
+      const base = calcBasePrice(p, resolvedMode, resolvedMap);
       if (activeFilter === "discount") return cur > 0 && base > 0 && cur < base;
       return cur > 0 && base > 0 && cur > base;
     });
@@ -64,7 +66,7 @@ async function saveLastSort(by, order) {
   await browser.storage.local.set({lastSort: {by, order}});
 }
 
-async function getSortedProducts(sortBy, order, productsList) {
+async function getSortedProducts(sortBy, order, productsList, percentMode = null) {
   const list = [...productsList];
   switch (sortBy) {
     case "name":
@@ -80,9 +82,9 @@ async function getSortedProducts(sortBy, order, productsList) {
       list.sort((a, b) => order * (parseDate(b.date) - parseDate(a.date)));
       break;
     case "percent": {
-      const {percentMode = "general"} = await browser.storage.local.get("percentMode");
+      const resolvedMode = percentMode ?? (await browser.storage.local.get("percentMode")).percentMode ?? "general";
       const oldPriceMap = await getOldPriceMap(list);
-      const percentOf = (p) => calcPercent(parsePrice(p.newPrice), calcBasePrice(p, percentMode, oldPriceMap));
+      const percentOf = (p) => calcPercent(parsePrice(p.newPrice), calcBasePrice(p, resolvedMode, oldPriceMap));
       list.sort((a, b) => order * (percentOf(a) - percentOf(b)));
       break;
     }
@@ -117,7 +119,7 @@ async function sortProducts(sortBy, productList) {
   const products = await getAllFromSync();
   let productsList = [...products];
 
-  const {lastSort: prev} = await browser.storage.local.get("lastSort");
+  const [{lastSort: prev}, {percentMode = "general"}] = await Promise.all([browser.storage.local.get("lastSort"), browser.storage.local.get("percentMode")]);
   const nextOrder = prev?.by === sortBy ? (prev.order ?? 1) * -1 : 1;
 
   if (sortBy === "group") {
@@ -131,12 +133,12 @@ async function sortProducts(sortBy, productList) {
       return groupA - groupB;
     });
   } else {
-    productsList = await getSortedProducts(sortBy, nextOrder, productsList);
+    productsList = await getSortedProducts(sortBy, nextOrder, productsList, percentMode);
   }
 
   await saveLastSort(sortBy, nextOrder);
   const order = await buildAndSaveOrder(productsList);
-  const filtered = await applyFilter(productsList);
+  const filtered = await applyFilter(productsList, {percentMode});
   renderProductList(sortByOrder(filtered, order), productList);
   updateSortMenuIndicator(sortBy, nextOrder);
   updateSortBtnIcon(sortBy, nextOrder);
@@ -185,7 +187,7 @@ document.addEventListener("DOMContentLoaded", () => {
       else {
         checkProgress.style.display = "none";
         updateLastUpdateTime();
-        document.querySelectorAll(".spinning").forEach((icon) => {
+        productList.querySelectorAll(".spinning").forEach((icon) => {
           icon.classList.replace("spinning", "checked");
           icon.textContent = "check_circle";
           icon.closest("button").disabled = false;
@@ -195,19 +197,29 @@ document.addEventListener("DOMContentLoaded", () => {
     if (area === "local" && changes.checkedIds) {
       const oldIds = changes.checkedIds.oldValue || [];
       const newIds = changes.checkedIds.newValue || [];
-      newIds.filter((id) => !oldIds.includes(id)).forEach((id) => markChecked(id));
+      const added = newIds.filter((id) => !oldIds.includes(id));
+      if (added.length > 0) markChecked(added);
     }
   });
 
-  async function markChecked(id) {
-    await updateProductRow(id, productList);
-    const btn = document.getElementById(`check-btn-${id}`);
-    if (btn) {
-      const icon = btn.querySelector("span");
-      icon.textContent = "check_circle";
-      icon.classList.remove("spinning");
-      icon.classList.add("checked");
-      btn.disabled = false;
+  async function markChecked(ids) {
+    const resolvedIds = Array.isArray(ids) ? ids : [ids];
+    const [products, order, {percentMode = "general"}, localDataBatch] = await Promise.all([
+      getAllFromSync(),
+      getAllFromDB(),
+      browser.storage.local.get("percentMode"),
+      browser.storage.local.get(resolvedIds),
+    ]);
+    await Promise.all(resolvedIds.map((id) => updateProductRow(id, productList, {products, order, percentMode, localDataBatch})));
+    for (const id of resolvedIds) {
+      const btn = document.getElementById(`check-btn-${id}`);
+      if (btn) {
+        const icon = btn.querySelector("span");
+        icon.textContent = "check_circle";
+        icon.classList.remove("spinning");
+        icon.classList.add("checked");
+        btn.disabled = false;
+      }
     }
   }
 
@@ -229,17 +241,27 @@ document.addEventListener("DOMContentLoaded", () => {
     browser.runtime.sendMessage({action: "clearBadge"});
   });
 
+  function debounce(fn, delay) {
+    let timer;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), delay);
+    };
+  }
+
   async function filterProductsByName(query) {
-    const products = await getAllFromSync();
-    const filtered = products.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()) || p.id.toLowerCase().includes(query.toLowerCase()));
-    const order = await getAllFromDB();
-    renderProductList(sortByOrder(await applyFilter(filtered), order), productList);
+    const [products, order] = await Promise.all([getAllFromSync(), getAllFromDB()]);
+    const q = query.toLowerCase();
+    const filtered = products.filter((p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q));
+    const {percentMode = "general"} = await browser.storage.local.get("percentMode");
+    renderProductList(sortByOrder(await applyFilter(filtered, {percentMode}), order), productList, order);
   }
 
   async function renderFiltered(products, order = null, notFoundMsg = null, save = false) {
     const resolvedOrder = order ?? (await getAllFromDB());
     if (save) await saveToDB(resolvedOrder);
-    const filtered = await applyFilter(products);
+    const {percentMode = "general"} = await browser.storage.local.get("percentMode");
+    const filtered = await applyFilter(products, {percentMode});
     renderProductList(sortByOrder(filtered, resolvedOrder), productList, null, notFoundMsg);
     return resolvedOrder;
   }
@@ -253,9 +275,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function loadProductList() {
     try {
-      const products = await getAllFromSync();
-      const dbOrder = await getAllFromDB();
-      const {lastSort} = await browser.storage.local.get("lastSort");
+      const [products, dbOrder, {lastSort}] = await Promise.all([getAllFromSync(), getAllFromDB(), browser.storage.local.get("lastSort")]);
       const missingOrder = products.some((p) => !dbOrder.some((o) => o.id === p.id && o.no != null));
       const needsRebuild = dbOrder.length === 0 || dbOrder.length !== products.length || missingOrder;
       let order = dbOrder;
@@ -275,12 +295,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const changedProducts = hasBadge && badgeProducts.length > 0 ? products.filter((p) => badgeProducts.includes(p.id)) : [];
       const listToRender = changedProducts.length > 0 ? changedProducts : products;
 
+      const {percentMode = "general"} = await browser.storage.local.get("percentMode");
+      let finalList = listToRender;
       if (lastSort && ["name", "Nprice", "Ndate", "date", "percent"].includes(lastSort.by)) {
-        const sortedList = await getSortedProducts(lastSort.by, lastSort.order, listToRender);
-        order = await buildAndSaveOrder(sortedList);
+        finalList = await getSortedProducts(lastSort.by, lastSort.order, listToRender, percentMode);
+        order = await buildAndSaveOrder(finalList);
       }
 
-      const filtered = await applyFilter(listToRender);
+      const filtered = await applyFilter(finalList, {percentMode});
       renderProductList(sortByOrder(filtered, order), productList);
       updateLastUpdateTime();
     } catch (error) {
@@ -411,7 +433,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const products = await getAllFromSync();
 
       if (lastSort?.by === "percent") {
-        const sorted = await getSortedProducts("percent", -lastSort.order, products);
+        const sorted = await getSortedProducts("percent", lastSort.order, products);
         await saveOrderAndRender(sorted, productList);
       } else {
         await renderFiltered(products);
@@ -452,7 +474,10 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     if (searchBox) {
-      searchBox.addEventListener("input", () => filterProductsByName(searchBox.value));
+      searchBox.addEventListener(
+        "input",
+        debounce(() => filterProductsByName(searchBox.value), 250),
+      );
     }
   }
 });

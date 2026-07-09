@@ -14,10 +14,11 @@ async function getPriceHistory(asin) {
 
     if (hasAftData && Number.isFinite(parsedNow) && parsedNow > 0) {
       const updateAuth = await window.getAuthHeaders();
+      const canonicalPrice = (await fetchCanonicalPrice(asin)) || nowPrice;
       await fetch("https://aft.web.tr/extension/UpdatePrice.php", {
         method: "POST",
         headers: {"Content-Type": "application/x-www-form-urlencoded", ...updateAuth},
-        body: new URLSearchParams({urun_id: asin, fiyat: nowPrice, platform: "amazon"}),
+        body: new URLSearchParams({urun_id: asin, fiyat: canonicalPrice, platform: "amazon"}),
       });
     }
 
@@ -446,4 +447,34 @@ async function fetchYanyoData(asin) {
   }
 }
 
+async function fetchCanonicalPrice(asin) {
+  try {
+    const res = await fetch(`https://www.amazon.com.tr/dp/${asin}?th=1&psc=1`);
+    const html = await res.text();
+    const match = html.match(/"priceAmount":([\d.]+)/);
+    if (!match) return null;
+    const num = parseFloat(match[1]);
+    if (!Number.isFinite(num)) return null;
+    const canonicalUrl = `https://www.amazon.com.tr/dp/${asin}?th=1&psc=1`;
+    insertCheaperSellerBox(num, canonicalUrl);
+    return num.toLocaleString("tr-TR");
+  } catch {
+    return null;
+  }
+}
+
+function insertCheaperSellerBox(canonicalPrice, canonicalUrl) {
+  document.querySelector(".cheaper-seller-box")?.remove();
+  const nowPrice = window.getLivePrice?.();
+  const currentPrice = parseFloat((nowPrice || "").replace(/\./g, "").replace(",", "."));
+  if (!Number.isFinite(currentPrice) || canonicalPrice >= currentPrice) return;
+  const wrapper = document.querySelector("#followButtonWrapper");
+  if (!wrapper) return;
+  const box = document.createElement("div");
+  box.className = "cheaper-seller-box";
+  box.innerHTML = `💰 Bu ürünü <strong>${canonicalPrice.toLocaleString("tr-TR")} TL</strong> fiyatına satan farklı bir satıcı var. <a href="${canonicalUrl}">Satıcıya Git</a>`;
+  wrapper.insertAdjacentElement("afterend", box);
+}
+
 window.getPriceHistory = getPriceHistory;
+window.fetchCanonicalPrice = fetchCanonicalPrice;
