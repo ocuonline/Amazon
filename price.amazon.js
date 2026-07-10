@@ -1,5 +1,5 @@
 // background > price.amazon.js (bu açıklamayı silme)
-import {buildPrice, parsePrice, formatTL} from "./utils.js";
+import {buildPrice, parsePrice} from "./utils.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;
@@ -36,7 +36,7 @@ export async function fetchProductAmazon(url) {
     return {price: null, stockCount: null, promoText: null, outOfStock: null, deleted: false};
   }
 
-  if (html && html.includes("black-curtain-yes-button")) {
+  if (html && (html.includes("black-curtain-yes-button") || html.includes('action="/errors/validateCaptcha"'))) {
     const yesHref = html.match(/id="black-curtain-yes-button"[\s\S]*?href="([^"]+)"/)?.[1];
     if (yesHref) {
       const yesUrl = yesHref.startsWith("http") ? yesHref : `https://www.amazon.com.tr${yesHref}`;
@@ -49,6 +49,27 @@ export async function fetchProductAmazon(url) {
       }
       if (result.html === null) return {price: null, stockCount: null, promoText: null, deleted: result.deleted};
       html = result.html;
+      if (!html.includes('id="ASIN"')) return {price: null, stockCount: null, promoText: null, outOfStock: null, deleted: false};
+    } else {
+      const amzn = html.match(/name="amzn"\s+value="([^"]+)"/)?.[1];
+      const amznR = html.match(/name="amzn-r"\s+value="([^"]+)"/)?.[1];
+      const keywords = html.match(/name="field-keywords"\s+value="([^"]+)"/)?.[1];
+      if (amzn && amznR) {
+        const params = new URLSearchParams({amzn, "amzn-r": amznR});
+        if (keywords) params.set("field-keywords", keywords);
+        const bypassUrl = `https://www.amazon.com.tr/errors/validateCaptcha?${params.toString()}`;
+        console.log("[captcha] bypass url:", bypassUrl);
+        let result;
+        try {
+          result = await fetchHtml(bypassUrl);
+        } catch (err) {
+          console.error("captcha bypass hatası", err);
+          return {price: null, stockCount: null, promoText: null, deleted: false};
+        }
+        if (result.html === null) return {price: null, stockCount: null, promoText: null, deleted: result.deleted};
+        html = result.html;
+        if (!html.includes('id="ASIN"')) return {price: null, stockCount: null, promoText: null, outOfStock: null, deleted: false};
+      }
     }
   }
 
@@ -146,29 +167,60 @@ export async function fetchProductAmazon(url) {
         .trim()
     : null;
 
-  const outOfStock = isProductUrl && (!price || parsePrice(price) <= 0);
+  const outOfStock = !isProductUrl ? null : !price || parsePrice(price) <= 0;
   return {price, stockCount, promoText, installment: installment || null, condition, outOfStock};
 }
 
 export async function domProductAmazon(url) {
   const tab = await browser.tabs.create({url, active: false, pinned: true});
   const tabId = tab.id;
+
   return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
+    let settled = false;
+    let activeTimeout;
+
+    function cleanup() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(activeTimeout);
       browser.tabs.onUpdated.removeListener(listener);
       try {
         browser.tabs.remove(tabId);
       } catch (_) {}
-      resolve({price: null, stockCount: null, promoText: null, outOfStock: true});
+    }
+
+    function settleWith(value) {
+      cleanup();
+      resolve(value);
+    }
+
+    activeTimeout = setTimeout(() => {
+      settleWith({price: null, stockCount: null, promoText: null, outOfStock: true});
     }, 15000);
 
     function listener(id, info) {
-      if (id !== tabId || info.status !== "complete") return;
+      if (settled || id !== tabId || info.status !== "complete") return;
 
-      browser.tabs
-        .get(tabId)
-        .then((currentTab) => {
-          if (currentTab.url && (currentTab.url.includes("/black-curtain/") || currentTab.url.includes("/errors/validateCaptcha"))) {
+      browser.scripting.executeScript(
+        {
+          target: {tabId},
+          func: () => {
+            const hasBlackCurtain = !!document.querySelector("#black-curtain-yes-button");
+            const hasCaptchaForm = !!document.querySelector('form[action="/errors/validateCaptcha"]');
+            return {hasBlackCurtain, hasCaptchaForm};
+          },
+        },
+        async ([checkResult]) => {
+          const {hasBlackCurtain, hasCaptchaForm} = checkResult?.result ?? {};
+
+          if (hasBlackCurtain || hasCaptchaForm) {
+            if (!settled) {
+              clearTimeout(activeTimeout);
+              activeTimeout = setTimeout(() => {
+                settleWith({price: null, stockCount: null, promoText: null, outOfStock: true});
+              }, 15000);
+            }
+
             browser.scripting.executeScript({
               target: {tabId},
               func: () => {
@@ -184,16 +236,19 @@ export async function domProductAmazon(url) {
             return;
           }
 
-          browser.tabs.onUpdated.removeListener(listener);
-          clearTimeout(timeout);
-
-          const tabUrl = currentTab.url ?? url;
-          const isProductUrl = tabUrl.includes("/dp/") || tabUrl.includes("/gp/product/");
+          const isProductUrl = url.includes("/dp/") || url.includes("/gp/product/");
           if (!isProductUrl) {
-            try {
-              browser.tabs.remove(tabId);
-            } catch (_) {}
-            resolve({price: null, stockCount: null, promoText: null, outOfStock: false, deleted: true});
+            settleWith({price: null, stockCount: null, promoText: null, outOfStock: false, deleted: true});
+            return;
+          }
+
+          // FIX #6: asinCheck false olunca listener temizle (cleanup içinde yapılıyor)
+          const asinCheck = await browser.scripting.executeScript({
+            target: {tabId},
+            func: () => !!document.querySelector("#ASIN"),
+          });
+          if (!asinCheck?.[0]?.result) {
+            settleWith({price: null, stockCount: null, promoText: null, outOfStock: null, deleted: false});
             return;
           }
 
@@ -257,40 +312,34 @@ export async function domProductAmazon(url) {
               ([result]) => {
                 if (browser.runtime.lastError) {
                   console.error("domProductAmazon: lastError", browser.runtime.lastError);
-                  try {
-                    browser.tabs.remove(tabId);
-                  } catch (_) {}
-                  return resolve({price: null, stockCount: null, promoText: null, outOfStock: true});
+                  settleWith({price: null, stockCount: null, promoText: null, outOfStock: true});
+                  return;
                 }
-                try {
-                  browser.tabs.remove(tabId);
-                } catch (_) {}
                 const {whole, fraction, stockCount, promoText, installment, condition} = result?.result ?? {};
                 let price = null;
                 try {
-                  price = buildPrice(whole, fraction ?? null);
+                  if (whole) {
+                    const fractionPart = fraction != null ? fraction : "00";
+                    const raw = `${whole},${fractionPart}`.replace(/\./g, "").replace(",", ".");
+                    const num = parseFloat(raw);
+                    price = isNaN(num) ? `${whole},${fractionPart}`.trim() : num.toLocaleString("tr-TR", {maximumFractionDigits: 2});
+                  }
                 } catch (e) {
                   console.error("buildPrice hatası", e);
                 }
-                const outOfStock = price && parsePrice(price) > 0 ? false : true;
-                resolve({price, stockCount, promoText, installment, condition, outOfStock});
+                const parsedPrice = price ? parsePrice(price) : 0;
+                const outOfStock = parsedPrice <= 0;
+                settleWith({price, stockCount, promoText, installment, condition, outOfStock});
               },
             );
           } catch (err) {
             console.error("domProductAmazon: executeScript hatası", err);
-            try {
-              browser.tabs.remove(tabId);
-            } catch (_) {}
-            resolve({price: null, stockCount: null, promoText: null, outOfStock: null});
+            settleWith({price: null, stockCount: null, promoText: null, outOfStock: null});
           }
-        })
-        .catch((err) => {
-          console.error("tabs.get hatası", err);
-          clearTimeout(timeout);
-          browser.tabs.onUpdated.removeListener(listener);
-          resolve({price: null, stockCount: null, promoText: null, deleted: false});
-        });
+        },
+      );
     }
+
     browser.tabs.onUpdated.addListener(listener);
   });
 }

@@ -5,7 +5,7 @@ if (typeof browser === "undefined") {
   var browser = chrome;
 }
 
-function pickBestListing(listings) {
+export function pickBestListing(listings) {
   let bestPrice = Infinity;
   let bestListing = null;
   for (const listing of listings) {
@@ -22,12 +22,19 @@ function pickBestListing(listings) {
 
 function parsePageData(pageHtml) {
   const productId = pageHtml.match(/"productId"\s*:\s*"([^"]+)"/)?.[1] ?? pageHtml.match(/HBC[A-Z0-9]+/)?.[0];
-  const catsRaw = pageHtml.match(/"rootCategoryList"\s*:\s*(\[[^\]]+\])/)?.[1];
-  const rootCategoryList = catsRaw
-    ? JSON.parse(catsRaw)
+
+  let rootCategoryList = [];
+  try {
+    const catsMatch = pageHtml.match(/"rootCategoryList"\s*:\s*(\[[[\s\S]*?\])\s*(?:,|\})/);
+    if (catsMatch?.[1]) {
+      rootCategoryList = JSON.parse(catsMatch[1])
         .map((c) => Number(c.categoryId))
-        .filter(Boolean)
-    : [];
+        .filter(Boolean);
+    }
+  } catch (e) {
+    console.error("parsePageData: rootCategoryList ayrıştırma hatası", e.message);
+  }
+
   const brand = pageHtml.match(/"brand"\s*:\s*"([^"]+)"/)?.[1];
   const definitionName = pageHtml.match(/"definitionName"\s*:\s*"([^"]+)"/)?.[1];
   const definitionId = pageHtml.match(/"definitionId"\s*:\s*(\d+)/)?.[1];
@@ -40,7 +47,7 @@ export async function fetchProductHB(url) {
     pageRes = await fetch(url);
   } catch (err) {
     console.error("fetchProductHB: sayfa fetch hatası", err, url);
-    return {price: null, outOfStock: true, deleted: false};
+    return {price: null, outOfStock: null, deleted: false};
   }
   if (!pageRes.ok) {
     if (pageRes.status === 404) return {price: null, outOfStock: false, deleted: true};
@@ -62,9 +69,9 @@ export async function fetchProductHB(url) {
     });
   } catch (err) {
     console.error("fetchProductHB: listings fetch hatası", err);
-    return {price: null, outOfStock: true};
+    return {price: null, outOfStock: null};
   }
-  if (!res.ok) return {price: null, outOfStock: true};
+  if (!res.ok) return {price: null, outOfStock: null};
 
   const json = await res.json();
   const listings = json?.data?.listings ?? [];
@@ -72,18 +79,18 @@ export async function fetchProductHB(url) {
   try {
     ({bestPrice, bestListing} = pickBestListing(listings));
   } catch (e) {
-    return {price: null, outOfStock: true};
+    return {price: null, outOfStock: null};
   }
   if (!bestListing) return urlHasVariant && hbid ? {price: null, outOfStock: true} : {price: null, outOfStock: null, deleted: false};
   try {
     return await finalizeHB(url, parsePageData(pageHtml), bestPrice, bestListing, hbid);
   } catch (e) {
     console.error("finalizeHB hatası", e);
-    return {price: null, outOfStock: true};
+    return {price: null, outOfStock: null};
   }
 }
 
-async function finalizeHB(url, pageData, bestPrice, bestListing, hbid) {
+export async function finalizeHB(url, pageData, bestPrice, bestListing, hbid) {
   const base = url.split("?")[0];
   const best = {
     price: bestPrice,
@@ -100,7 +107,13 @@ async function finalizeHB(url, pageData, bestPrice, bestListing, hbid) {
 
     const otherRes = await fetch("https://www.hepsiburada.com/api/v1/otherMerchants", {
       method: "POST",
-      headers: {"content-type": "application/json", accept: "application/json"},
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        referer: "https://www.hepsiburada.com/",
+        origin: "https://www.hepsiburada.com",
+      },
       body: JSON.stringify({
         userId: "",
         product: {
@@ -129,15 +142,16 @@ async function finalizeHB(url, pageData, bestPrice, bestListing, hbid) {
       }),
     });
 
-    if (!otherRes.ok) throw new Error(`otherMerchants HTTP ${otherRes.status}`);
+    if (!otherRes.ok) {
+      console.warn(`otherMerchants ${otherRes.status}, bestSeller fiyatıyla devam ediliyor`);
+      return {outOfStock: false, installment, bestSeller: best, campaigns: null, bestPrice, discountedPrice: null, deleted: false};
+    }
     const otherJson = await otherRes.json();
     const merchantResult = otherJson?.data?.result?.products?.otherMerchants?.find((m) => m.listingId === bestListing.listingId);
 
     const campaigns = merchantResult?.campaigns?.length ? merchantResult.campaigns.map((c) => ({text: c.text})) : null;
 
     const discountedPrice = merchantResult?.priceData?.discountedPrice ?? null;
-
-    // Ham veriyi döndür, hangi fiyatın kullanılacağına update.js karar verecek
     return {
       outOfStock: false,
       installment,
@@ -149,7 +163,6 @@ async function finalizeHB(url, pageData, bestPrice, bestListing, hbid) {
     };
   } catch (err) {
     console.error("finalizeHB: otherMerchants hatası", err);
-    // otherMerchants başarısız olsa da ham fiyatla devam et
     return {
       outOfStock: false,
       installment,
@@ -166,18 +179,30 @@ export async function domProductHB(url) {
   const tab = await browser.tabs.create({url, active: false, pinned: true});
   const tabId = tab.id;
   return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
+    let settled = false;
+    let activeTimeout;
+
+    function cleanup() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(activeTimeout);
       browser.tabs.onUpdated.removeListener(listener);
       try {
         browser.tabs.remove(tabId);
       } catch (_) {}
-      resolve({price: null, outOfStock: true});
+    }
+
+    function settleWith(value) {
+      cleanup();
+      resolve(value);
+    }
+
+    activeTimeout = setTimeout(() => {
+      settleWith({price: null, outOfStock: null});
     }, 15000);
 
     function listener(id, info) {
-      if (id !== tabId || info.status !== "complete") return;
-      browser.tabs.onUpdated.removeListener(listener);
-      clearTimeout(timeout);
+      if (settled || id !== tabId || info.status !== "complete") return;
 
       try {
         browser.scripting.executeScript(
@@ -199,7 +224,7 @@ export async function domProductHB(url) {
                 const json = await res.json();
                 listings = json?.data?.listings ?? [];
               } catch {
-                return {price: null, outOfStock: true};
+                return {price: null, outOfStock: null};
               }
 
               const pageHtml = document.documentElement.outerHTML;
@@ -217,43 +242,38 @@ export async function domProductHB(url) {
               return {hbid, listings, pageData: {productId, rootCategoryList, brand, definitionName, definitionId}};
             },
           },
-          async ([result]) => {
+          ([result]) => {
             if (browser.runtime.lastError) {
               console.error("domProductHB: lastError", browser.runtime.lastError);
-              try {
-                browser.tabs.remove(tabId);
-              } catch (_) {}
-              return resolve({price: null, outOfStock: true});
+              return settleWith({price: null, outOfStock: null});
             }
-            try {
-              browser.tabs.remove(tabId);
-            } catch (_) {}
 
             const raw = result?.result;
-            if (!raw) return resolve({price: null, outOfStock: null, deleted: false});
-            if (raw.deleted) return resolve({price: null, outOfStock: false, deleted: true});
-            if (raw.price !== undefined || raw.outOfStock !== undefined) return resolve(raw);
+            if (!raw) return settleWith({price: null, outOfStock: null, deleted: false});
+            if (raw.deleted) return settleWith({price: null, outOfStock: false, deleted: true});
+            if (raw.price !== undefined || raw.outOfStock !== undefined) return settleWith(raw);
 
             const {hbid, listings, pageData} = raw;
             const urlHasVariant = url.includes("-p-") || url.includes("-pm-");
-            const {bestPrice, bestListing} = pickBestListing(listings);
-            if (!bestListing) return resolve(urlHasVariant && hbid ? {price: null, outOfStock: true} : {price: null, outOfStock: null, deleted: false});
-
+            let bestPrice, bestListing;
             try {
-              const finalResult = await finalizeHB(url, pageData, bestPrice, bestListing, hbid);
-              resolve(finalResult);
+              ({bestPrice, bestListing} = pickBestListing(listings));
             } catch (e) {
-              console.error("domProductHB: finalizeHB hatası", e);
-              resolve({price: null, outOfStock: true});
+              return settleWith({price: null, outOfStock: null});
             }
+            if (!bestListing) return settleWith(urlHasVariant && hbid ? {price: null, outOfStock: true} : {price: null, outOfStock: null, deleted: false});
+
+            finalizeHB(url, pageData, bestPrice, bestListing, hbid)
+              .then((finalResult) => settleWith(finalResult))
+              .catch((e) => {
+                console.error("domProductHB: finalizeHB hatası", e);
+                settleWith({price: null, outOfStock: null});
+              });
           },
         );
       } catch (err) {
         console.error("domProductHB: executeScript hatası", err);
-        try {
-          browser.tabs.remove(tabId);
-        } catch (_) {}
-        resolve({price: null, outOfStock: true});
+        settleWith({price: null, outOfStock: null});
       }
     }
     browser.tabs.onUpdated.addListener(listener);

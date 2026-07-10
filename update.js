@@ -242,11 +242,12 @@ export async function updateProductPrice(product, fetchMode) {
     }
 
     if (isHB && bestSeller && bestSeller.price > 0) {
-      // Hangi fiyatın kullanılacağına burada karar veriyoruz
-      const finalPrice = discountedPrice > 0 && discountedPrice < bestPrice ? discountedPrice : bestPrice;
+      const finalPrice = bestPrice;
       const finalPriceStr = formatTL(finalPrice);
 
-      product.url = bestSeller.url;
+      if (bestSeller.url) {
+        product.url = bestSeller.url;
+      }
       const prevPrice = product.newPrice ?? product.firstPrice;
       if (finalPriceStr !== prevPrice) {
         product.newPriceDate = Date.now();
