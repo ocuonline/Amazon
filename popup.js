@@ -271,6 +271,61 @@ document.addEventListener("DOMContentLoaded", () => {
     if (lastUpdateData.lastUpdateTime) {
       lastUpdateTime.innerText = `Son Kontrol: ${lastUpdateData.lastUpdateTime}`;
     }
+    await updateProductStats();
+  }
+
+  async function updateProductStats() {
+    const statsEl = document.getElementById("product-stats");
+    if (!statsEl) return;
+
+    const products = await getAllFromSync();
+    const total = products.length;
+    const [localData, {percentMode = "general"}, oldPriceMap] = await Promise.all([
+      browser.storage.local.get(products.map((p) => p.id)),
+      browser.storage.local.get("percentMode"),
+      getOldPriceMap(products),
+    ]);
+
+    let up = 0,
+      down = 0,
+      target = 0,
+      outOfStock = 0,
+      stockIn = 0,
+      deleted = 0;
+
+    for (const p of products) {
+      const cur = parsePrice(p.newPrice);
+      const base = calcBasePrice(p, percentMode, oldPriceMap);
+
+      if (cur > 0 && base > 0) {
+        if (cur > base) up++;
+        else if (cur < base) down++;
+      }
+
+      const t = parsePrice(p.targetPrice);
+      if (t > 0 && cur > 0 && cur <= t) target++;
+
+      if (p.outOfStock === true) outOfStock++;
+      if (localData[p.id]?.stockIn) stockIn++;
+      if (localData[p.id]?.deleted) deleted++;
+    }
+
+    const parts = [
+      `<span class="stat-item">Toplam Ürün: <strong>${total}</strong></span>`,
+      target > 0 ? `<span class="stat-item stat-target">🎯 ${target}</span>` : "",
+      down > 0 ? `<span class="stat-item stat-down">↓${down}</span>` : "",
+      stockIn > 0 ? `<span class="stat-item stat-in">➕${stockIn}</span>` : "",
+      up > 0 ? `<span class="stat-item stat-up">↑${up}</span>` : "",
+      outOfStock > 0 ? `<span class="stat-item stat-out">⛔${outOfStock}</span>` : "",
+      deleted > 0 ? `<span class="stat-item stat-del">🗑️${deleted}</span>` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    statsEl.textContent = "";
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = parts;
+    while (tempDiv.firstChild) statsEl.appendChild(tempDiv.firstChild);
   }
 
   async function loadProductList() {
@@ -312,30 +367,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function setFilterIcon(filter) {
     const filterBtn = document.getElementById("filter-btn");
-    filterBtn.textContent = "";
-    const iconMap = {
-      "stock-in": ["material-icons", "filter-icon-in", "add_circle"],
-      "stock-out": ["material-icons", "filter-icon-out", "do_not_disturb"],
-      all: ["material-icons", "", "filter_list"],
+
+    const textMap = {
+      all: "☰",
+      discount: "⬇️",
+      increase: "⬆️",
+      target: "🎯",
+      "stock-in": "➕",
+      "stock-out": "⛔",
+      "🔴": "🔴",
+      "🟡": "🟡",
+      "🟢": "🟢",
     };
-    const textMap = {discount: "⬇️", increase: "⬆️", target: "🎯", "🔴": "🔴", "🟡": "🟡", "🟢": "🟢"};
-    if (iconMap[filter]) {
-      const [cls1, cls2, text] = iconMap[filter];
-      const span = document.createElement("span");
-      span.className = [cls1, cls2].filter(Boolean).join(" ");
-      span.textContent = text;
-      filterBtn.appendChild(span);
-    } else {
-      filterBtn.textContent = textMap[filter] ?? "";
-    }
+
+    filterBtn.textContent = textMap[filter] ?? "";
   }
 
-  function setupFilterMenu() {
+  async function setupFilterMenu() {
     const filterBtn = document.getElementById("filter-btn");
     const filterMenu = document.getElementById("filter-menu");
     const filterClearBtn = document.getElementById("filter-clear-btn");
 
-    const savedFilter = localStorage.getItem("activeFilter");
+    const {activeFilter: savedFilter} = await browser.storage.local.get("activeFilter");
     if (savedFilter && savedFilter !== "all") {
       activeFilter = savedFilter;
       const matchedOption = filterMenu.querySelector(`[data-filter="${savedFilter}"]`);
@@ -348,7 +401,7 @@ document.addEventListener("DOMContentLoaded", () => {
     filterClearBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       activeFilter = null;
-      localStorage.removeItem("activeFilter");
+      await browser.storage.local.remove("activeFilter");
       filterMenu.querySelectorAll(".filter-option").forEach((o) => o.classList.remove("active"));
       filterClearBtn.style.display = "none";
       setFilterIcon("all");
@@ -376,7 +429,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         filterMenu.querySelectorAll(".filter-option").forEach((o) => o.classList.remove("active"));
         if (activeFilter !== "all") option.classList.add("active");
-        localStorage.setItem("activeFilter", activeFilter);
+        await browser.storage.local.set({activeFilter});
         filterClearBtn.style.display = activeFilter !== "all" ? "inline-flex" : "none";
         setFilterIcon(activeFilter ?? "all");
         filterBtn.classList.toggle("active", activeFilter !== "all");

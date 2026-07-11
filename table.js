@@ -181,13 +181,16 @@ export async function renderProductList(products, productList, order = null, emp
   productList.appendChild(fragment);
 }
 
-document.addEventListener("click", (event) => {
-  document.querySelectorAll(".group-menu").forEach((menu) => {
-    if (!menu.contains(event.target) && !menu.parentElement.contains(event.target)) {
-      menu.classList.remove("visible");
-    }
+if (!document._groupMenuListenerAttached) {
+  document._groupMenuListenerAttached = true;
+  document.addEventListener("click", (event) => {
+    document.querySelectorAll(".group-menu").forEach((menu) => {
+      if (!menu.contains(event.target) && !menu.parentElement.contains(event.target)) {
+        menu.classList.remove("visible");
+      }
+    });
   });
-});
+}
 
 const GROUPS = ["🔴", "🟡", "🟢"];
 
@@ -537,6 +540,7 @@ export function toggleAccordion(id, product, productList) {
   if (prevRow) prevRow.classList.remove("accordion-open");
 
   if (existingAccordion) {
+    existingAccordion.querySelector('[id$="-echart"]')?.dispatchEvent(new Event("remove"));
     existingAccordion.remove();
     if (lastExpandedIndex === id) {
       lastExpandedIndex = null;

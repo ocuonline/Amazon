@@ -16,11 +16,12 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
   const percentChangeRounded = Math.round(percentageChange);
 
   const addNotificationListener = (notificationId) => {
-    browser.notifications.onClicked.addListener((id) => {
-      if (id === notificationId) {
-        browser.tabs.create({url: product.url});
-      }
-    });
+    const handler = (id) => {
+      if (id !== notificationId) return;
+      browser.tabs.create({url: product.url});
+      browser.notifications.onClicked.removeListener(handler);
+    };
+    browser.notifications.onClicked.addListener(handler);
   };
 
   if (type === "stock") {

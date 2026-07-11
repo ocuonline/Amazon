@@ -613,11 +613,57 @@ a:hover {
 }
 
 /* LAST UPDATE */
+#bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 14px;
+  font-size: 11px;
+  color: var(--text3);
+  border-top: 1px solid var(--border);
+  background: var(--bg3);
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 #last-update-time {
   text-align: right;
-  padding: 6px 14px;
-  font-size: 12px;
+  padding: 0; /* eski padding'i sıfırla */
+  font-size: 11px;
   color: var(--text3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+#product-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text3);
+  min-width: 0;
+}
+
+.stat-item {
+  white-space: nowrap;
+}
+.stat-up {
+  color: var(--red);
+}
+.stat-down {
+  color: var(--green);
+}
+.stat-target {
+  color: #eab308;
+}
+.stat-out {
+  color: var(--red);
+  opacity: 0.75;
+}
+.stat-del {
+  color: var(--text3);
+  opacity: 0.6;
 }
 
 /* SPINNING */

@@ -82,6 +82,16 @@ export async function renderChart(urun_id, data, realProductId = urun_id) {
   container.appendChild(chartDiv);
 
   const chart = echarts.init(chartDiv);
+  const resizeHandler = () => chart.resize();
+  window.addEventListener("resize", resizeHandler);
+  chartDiv.addEventListener(
+    "remove",
+    () => {
+      chart.dispose();
+      window.removeEventListener("resize", resizeHandler);
+    },
+    {once: true},
+  );
   const toggleState = {aft: true, yanyo: true};
   let currentPeriod = 12;
 
@@ -116,8 +126,6 @@ export async function renderChart(urun_id, data, realProductId = urun_id) {
       chart.setOption(getChartOption(agg, yanyo, toggleState));
     });
   });
-
-  window.addEventListener("resize", () => chart.resize());
 }
 
 function aggregateData(data, ay) {

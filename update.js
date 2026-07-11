@@ -22,12 +22,15 @@ export function cancelPriceCheck() {
   isCancelled = true;
 }
 
+const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
+
 async function fetchWithRetry(fn, retries = 3, delay = 10000) {
   for (let i = 0; i < retries; i++) {
     try {
       return await fn();
     } catch (err) {
-      if (i === retries - 1) throw err;
+      const isTransient = !err.status || TRANSIENT_STATUSES.has(err.status);
+      if (i === retries - 1 || !isTransient) throw err;
       const wait = delay * Math.pow(2, i);
       console.warn(`Fetch hata (deneme ${i + 1}/${retries}), ${wait}ms sonra tekrar: ${err.message}`);
       await new Promise((resolve) => setTimeout(resolve, wait));
@@ -52,14 +55,16 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       const freshList = await getAllFromSync();
       if (isCancelled) return;
       const product = freshList.find((p) => p.id === id);
-      if (!product) return;
+      if (!product) {
+        if (onProductChecked) onProductChecked(id);
+        return;
+      }
 
       await browser.storage.local.set({
         checkProgress: {current, total, currentId: id, currentName: product.name},
       });
 
       const prevPrice = product.newPrice ?? product.firstPrice ?? null;
-      const oldPrice = parsePrice(product.firstPrice);
       const fetchedPrice = prevPrice !== null ? parsePrice(prevPrice) : 0;
       const targetPrice = parsePrice(product.targetPrice);
 
@@ -70,7 +75,8 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       if (isCancelled) return;
       try {
         updateResult = await fetchWithRetry(() => updateProductPrice(product, fetchMode));
-      } catch (_) {
+      } catch (fetchErr) {
+        console.warn(`fetchWithRetry başarısız [${product.id}]:`, fetchErr.message);
         updateResult = {newPrice: product.newPrice, outOfStock: product.outOfStock};
       }
       const {newPrice: updatedPrice, outOfStock = undefined, deleted} = updateResult;
@@ -94,7 +100,7 @@ export async function checkPrices(productId = null, onProductChecked = null) {
 
       const newPrice = parsePrice(updatedPrice);
       const resolvedPrev = prevPrice !== null ? parsePrice(prevPrice) : null;
-      if (resolvedPrev !== null && parsePrice(updatedPrice) !== resolvedPrev) {
+      if (resolvedPrev !== null && newPrice !== resolvedPrev) {
         const data = (await browser.storage.local.get(product.id))[product.id] || {};
         await browser.storage.local.set({[product.id]: {...data, oldPrice: prevPrice}});
       }
@@ -147,7 +153,7 @@ export async function checkPrices(productId = null, onProductChecked = null) {
         }
         priceChanged = true;
       } else if (!isNaN(newPrice) && newPrice > 0 && product.firstPrice !== null) {
-        const comparePrice = fetchedPrice > 0 ? fetchedPrice : oldPrice;
+        const comparePrice = fetchedPrice > 0 ? fetchedPrice : parsePrice(product.firstPrice);
         const comparePriceRaw = fetchedPrice > 0 ? prevPrice : product.firstPrice;
 
         if (comparePrice > 0 && newPrice < comparePrice) {
@@ -200,7 +206,7 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       await new Promise((resolve) => setTimeout(resolve, checkDelay));
       if (onProductChecked) onProductChecked(id);
     } catch (err) {
-      console.error(`checkSingle hata [${id}]:`, err.message);
+      console.error(`checkSingle hata [${id}]:`, err.message, err.stack);
       if (onProductChecked) onProductChecked(id);
     }
   }
@@ -235,7 +241,7 @@ export async function updateProductPrice(product, fetchMode) {
         ? await domProductAmazon(product.url)
         : await fetchProductAmazon(product.url);
 
-    const {stockCount, promoText, installment, condition, deleted, outOfStock, bestSeller, campaigns, bestPrice, discountedPrice} = result;
+    const {stockCount, promoText, installment, condition, deleted, outOfStock, bestSeller, campaigns, bestPrice} = result;
 
     if (deleted) {
       return {newPrice: product.newPrice, outOfStock: product.outOfStock, deleted: true};
@@ -309,6 +315,7 @@ export async function updateProductPrice(product, fetchMode) {
     }
     return {newPrice: product.newPrice, newPriceDate: product.newPriceDate, outOfStock: product.outOfStock};
   } catch (error) {
+    console.error(`updateProductPrice hatası [${product?.id}]:`, error.message);
     return {newPrice: product.newPrice, outOfStock: product.outOfStock};
   }
 }

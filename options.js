@@ -154,7 +154,12 @@ const importProducts = async () => {
       const file = target.files[0];
       const reader = new FileReader();
       reader.onload = async () => {
-        let newList = JSON.parse(reader.result);
+        let newList;
+        try {
+          newList = JSON.parse(reader.result);
+        } catch {
+          return showToast("Geçersiz JSON formatı: Dosya okunamadı.", "error");
+        }
         if (!Array.isArray(newList)) return showToast("Geçersiz JSON formatı: Dizi bekleniyor.", "error");
 
         const invalid = newList.filter((p) => !p.id || typeof p.id !== "string" || !p.id.trim());

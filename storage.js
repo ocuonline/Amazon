@@ -40,21 +40,24 @@ export async function getAllFromDB() {
 
 export async function saveToDB(dataArray) {
   const db = await openDB();
-  const tx = db.transaction(STORE_NAME, "readwrite");
-  const store = tx.objectStore(STORE_NAME);
-  for (const item of dataArray) {
-    const existing = await new Promise((resolve, reject) => {
-      const request = store.get(item.id);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    if (existing) {
-      store.put({...existing, ...item});
-    } else {
-      store.put(item);
-    }
-  }
+  const existingMap = await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.getAll();
+    request.onsuccess = () => {
+      const map = new Map(request.result.map((item) => [item.id, item]));
+      resolve(map);
+    };
+    request.onerror = () => reject(request.error);
+  });
+
   await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    for (const item of dataArray) {
+      const existing = existingMap.get(item.id);
+      store.put(existing ? {...existing, ...item} : item);
+    }
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
@@ -162,7 +165,7 @@ export async function clearAllStorage() {
     await Promise.all([
       ...productKeys.map((key) => browser.storage.sync.remove(key)),
       browser.storage.sync.remove("lastUpdateTime"),
-      browser.storage.local.remove([...localKeys, ...oldCheckKeys, "lastSort"]),
+      browser.storage.local.remove([...localKeys, ...oldCheckKeys, "badgeProducts", "badgeCounts", "checkProgress", "checkedIds", "activeFilter"]),
     ]);
 
     const db = await openDB();
