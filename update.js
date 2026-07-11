@@ -12,6 +12,7 @@ if (typeof browser === "undefined") {
 
 let isCancelled = false;
 let writeQueue = Promise.resolve();
+let activeCheckId = 0;
 
 function queueWrite(fn) {
   writeQueue = writeQueue.then(fn);
@@ -40,9 +41,11 @@ async function fetchWithRetry(fn, retries = 3, delay = 10000) {
 
 export async function checkPrices(productId = null, onProductChecked = null) {
   isCancelled = false;
+  const checkId = ++activeCheckId;
   if (!productId) await browser.storage.local.set({checkedIds: []});
   const initialList = await getAllFromSync();
   const idsToCheck = productId ? [productId] : initialList.map((p) => p.id);
+  const productMap = new Map(initialList.map((p) => [p.id, p]));
 
   const {settings: s = {}} = await browser.storage.sync.get("settings");
   const concurrentLimit = Math.max(1, parseInt(s.concurrentLimit, 10) || 3);
@@ -51,10 +54,7 @@ export async function checkPrices(productId = null, onProductChecked = null) {
   async function checkSingle(id, current, total) {
     try {
       if (isCancelled) return;
-
-      const freshList = await getAllFromSync();
-      if (isCancelled) return;
-      const product = freshList.find((p) => p.id === id);
+      const product = productMap.get(id);
       if (!product) {
         if (onProductChecked) onProductChecked(id);
         return;
@@ -153,8 +153,8 @@ export async function checkPrices(productId = null, onProductChecked = null) {
         }
         priceChanged = true;
       } else if (!isNaN(newPrice) && newPrice > 0 && product.firstPrice !== null) {
-        const comparePrice = fetchedPrice > 0 ? fetchedPrice : parsePrice(product.firstPrice);
-        const comparePriceRaw = fetchedPrice > 0 ? prevPrice : product.firstPrice;
+        const comparePrice = fetchedPrice;
+        const comparePriceRaw = prevPrice;
 
         if (comparePrice > 0 && newPrice < comparePrice) {
           console.log(`Fiyat düştü -> ${product.id}: ${comparePrice} -> ${newPrice}`);
@@ -186,7 +186,10 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       }
 
       try {
-        await queueWrite(() => saveToSync([product]));
+        if (checkId === activeCheckId) {
+          await queueWrite(() => saveToSync([product]));
+          productMap.set(id, product);
+        }
       } catch (e) {
         console.error("saveToSync hatası", e);
       }
