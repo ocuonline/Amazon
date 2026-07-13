@@ -11,12 +11,13 @@ if (typeof browser === "undefined") {
 }
 
 let isCancelled = false;
-let writeQueue = Promise.resolve();
 let activeCheckId = 0;
+let writeQueue = Promise.resolve();
 
 function queueWrite(fn) {
-  writeQueue = writeQueue.then(fn);
-  return writeQueue;
+  const next = writeQueue.then(fn);
+  writeQueue = next.catch(() => {});
+  return next;
 }
 
 export function cancelPriceCheck() {
@@ -50,11 +51,8 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       const prevPrice = product.newPrice ?? product.firstPrice ?? null;
       const fetchedPrice = prevPrice ?? 0;
       const targetPrice = product.targetPrice ?? 0;
-
       const isHB = product.url.includes("hepsiburada.com");
       const prevOutOfStock = product.outOfStock;
-
-      let updateResult;
       if (isCancelled) return;
       const {newPrice: updatedPrice, outOfStock = undefined, deleted} = await updateProductPrice(product, fetchMode);
 
@@ -68,8 +66,8 @@ export async function checkPrices(productId = null, onProductChecked = null) {
         const updatedList = await getAllFromSync();
         const idx = updatedList.findIndex((p) => p.id === id);
         if (idx >= 0) {
-          updatedList[idx].deleted = true;
-          await saveToSync(updatedList);
+          const localEntry = (await browser.storage.local.get(id))[id] || {};
+          await browser.storage.local.set({[id]: {...localEntry, deleted: true}});
         }
         if (onProductChecked) onProductChecked(id);
         return;

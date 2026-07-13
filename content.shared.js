@@ -161,7 +161,7 @@ async function openAlarmModal(productId, product, alarmButton, callbacks = {}) {
     const followList = getBlocks(data);
     const index = followList.findIndex((item) => item.id === productId);
     if (index !== -1) {
-      followList[index].targetPrice = null;
+      delete followList[index].targetPrice;
       await saveToSync(followList);
     }
     close();

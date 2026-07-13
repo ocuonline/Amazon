@@ -1,7 +1,7 @@
 // background.js (bu açıklamayı silme)
 import {saveToDB, removeFromDB, fixProductData} from "./storage.js";
 import {checkPrices} from "./update.js";
-import {refreshToken} from "./sendUrl.js";
+import {refreshToken, registerToken} from "./sendUrl.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;
@@ -66,29 +66,10 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-async function registerToken() {
-  try {
-    const extensionId = browser.runtime.id;
-    const res = await fetch("https://aft.web.tr/extension/register.php", {
-      method: "POST",
-      headers: {"Content-Type": "application/x-www-form-urlencoded"},
-      body: new URLSearchParams({extension_id: extensionId}),
-    });
-    const data = await res.json();
-    if (data.token) {
-      await browser.storage.local.set({authToken: data.token});
-    }
-    if (data.hmac_secret) {
-      await browser.storage.local.set({hmacSecret: data.hmac_secret});
-    }
-  } catch (err) {
-    console.error("Token alınamadı:", err);
-  }
-}
-
 browser.runtime.onInstalled.addListener(async (details) => {
   await registerToken();
   await refreshToken();
+  browser.alarms.create("tokenRefreshAlarm", {periodInMinutes: 45});
   const settings = (await browser.storage.sync.get("settings")).settings || getDefaultSettings();
   if (settings.priceCheckInterval !== "0") {
     initializeSettings();
@@ -101,7 +82,8 @@ browser.runtime.onInstalled.addListener(async (details) => {
 
 browser.runtime.onStartup.addListener(async () => {
   console.log("Tarayıcı yeniden başlatıldı.");
-  await refreshToken();
+  await refreshToken().catch(() => registerToken());
+  browser.alarms.create("tokenRefreshAlarm", {periodInMinutes: 45});
   const settings = (await browser.storage.sync.get("settings")).settings || getDefaultSettings();
   if (settings.priceCheckInterval !== "0") {
     initializeSettings();
@@ -112,6 +94,9 @@ browser.runtime.onStartup.addListener(async () => {
 browser.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "priceCheckAlarm") {
     checkPrices();
+  }
+  if (alarm.name === "tokenRefreshAlarm") {
+    refreshToken();
   }
 });
 

@@ -311,7 +311,7 @@ function createNameCell(product, localData) {
   metaDiv.appendChild(metaLeft);
   metaDiv.appendChild(alarmWrapper);
 
-  if (product.deleted) {
+  if (localData.deleted) {
     addBadge(metaDiv, "promo-badge promo-badge-out", "Ürün Silinmiş", "Ürün Amazondan Silinmiş");
   } else if (product.outOfStock) {
     addBadge(metaDiv, "promo-badge promo-badge-out", "Stokta Yok", localData.stockOutDate ? formatDate(localData.stockOutDate) : "");
