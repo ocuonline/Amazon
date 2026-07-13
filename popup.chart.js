@@ -1,4 +1,4 @@
-//chart.popup.js (bu açıklamayı silme)
+//popup.chart.js (bu açıklamayı silme)
 
 if (typeof browser === "undefined") {
   var browser = chrome;
@@ -24,7 +24,7 @@ async function fetchYanyoData(asin) {
   const DATE_KEY = "rohs";
 
   try {
-    const response = await fetch(`https://aft.web.tr/extension/GetYaniyo.php?asin=${asin}`);
+    const response = await fetch(`https://apiv2.yaniyo.com/api/product/id/${asin}`);
     if (!response.ok) return [];
     const rawText = await response.text();
     const regex = new RegExp(`"${PRICE_HISTORY_ARRAY_KEY}"\\s*:\\s*(\\[[\\s\\S]*?\\])`, "i");

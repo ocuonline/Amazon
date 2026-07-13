@@ -1,6 +1,6 @@
 //background > notifications.js
 import {getAllFromSync} from "./storage.js";
-import {parsePrice} from "./utils.js";
+import {formatTL} from "./utils.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;
@@ -9,8 +9,8 @@ if (typeof browser === "undefined") {
 export async function sendNotification(product, oldPrice, newPrice, type) {
   const {settings = {}} = await browser.storage.sync.get("settings");
   const threshold = parseFloat(settings.priceChangeThreshold);
-  const oldPriceValue = parsePrice(oldPrice);
-  const newPriceValue = parsePrice(newPrice);
+  const oldPriceValue = oldPrice ?? 0;
+  const newPriceValue = newPrice ?? 0;
   const priceChange = Math.abs(newPriceValue - oldPriceValue);
   const percentageChange = oldPriceValue ? (priceChange / oldPriceValue) * 100 : 0;
   const percentChangeRounded = Math.round(percentageChange);
@@ -31,7 +31,7 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `Ürün Stoğa Girdi: ${newPrice}\n${product.name}`,
+        message: `Ürün Stoğa Girdi: ₺${formatTL(newPrice)}\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") stockOptions.requireInteraction = settings.requireInteraction === "ri_on";
       browser.notifications.create(notificationId, stockOptions);
@@ -47,7 +47,7 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `🎯 Hedef Fiyata Ulaştı: ${oldPrice} -> ${newPrice}\n${product.name}`,
+        message: `🎯 Hedef Fiyata Ulaştı: ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)}\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") targetOptions.requireInteraction = settings.requireInteraction === "ri_on";
       browser.notifications.create(notificationId, targetOptions);
@@ -63,7 +63,7 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `İndirim ${oldPrice} -> ${newPrice} (%${percentChangeRounded})\n${product.name}`,
+        message: `İndirim ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") discountOptions.requireInteraction = settings.requireInteraction === "ri_on";
       browser.notifications.create(notificationId, discountOptions);
@@ -79,7 +79,7 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `Zam ${oldPrice} -> ${newPrice} (%${percentChangeRounded})\n${product.name}`,
+        message: `Zam ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") increaseOptions.requireInteraction = settings.requireInteraction === "ri_on";
       browser.notifications.create(notificationId, increaseOptions);

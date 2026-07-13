@@ -28,11 +28,6 @@ browser.runtime.onMessage.addListener((message) => {
 
 let currentPriceInfo = {price: null, status: "Yükleniyor..."};
 
-function formatDateTime(date = new Date()) {
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 function getHBID() {
   const stokDiv = [...document.querySelectorAll("div")].find((el) => el.textContent.trim() === "Stok Kodu");
   const stokId = stokDiv?.nextElementSibling?.querySelector("span")?.textContent.trim();
@@ -90,7 +85,7 @@ function tryAddButtonWhenReady() {
 tryAddButtonWhenReady();
 
 let lastHref = window.location.href;
-new MutationObserver(() => {
+const hrefObserver = new MutationObserver(() => {
   if (window.location.href !== lastHref) {
     lastHref = window.location.href;
     setTimeout(() => {
@@ -98,57 +93,15 @@ new MutationObserver(() => {
       addFollowButton();
     }, 300);
   }
-}).observe(document.body, {childList: true, subtree: true});
+});
+hrefObserver.observe(document.body, {childList: true, subtree: true});
 
 function getProductName() {
   return document.querySelector('h1[data-test-id="title"]')?.innerText?.trim() || "";
 }
 
-function getBlocks(data) {
-  return Object.keys(data)
-    .filter((key) => window.PRODUCT_KEY_REGEX.test(key))
-    .map((key) => data[key]);
-}
-
-function cleanPrice(price) {
-  if (price === null || price === undefined) return price;
-  let num;
-  if (typeof price === "number") {
-    num = price;
-  } else {
-    const str = String(price).replace(/[^0-9,.]/g, "");
-    num = parseFloat(str.replace(/\./g, "").replace(",", "."));
-  }
-  if (isNaN(num)) return price;
-  return num.toLocaleString("tr-TR");
-}
-
-function parseLocalizedPrice(str) {
-  return parseFloat(
-    String(str)
-      .replace(/[^0-9,]/g, "")
-      .replace(/\./g, "")
-      .replace(",", "."),
-  );
-}
-
-function updateButton(isFollowed, hasPrice, button) {
-  if (!button) return;
-  const config = hasPrice
-    ? {
-        className: isFollowed ? "unfollow-btn" : "follow-btn",
-        text: isFollowed ? "⭐ Takipten Çık" : "⭐ Takip Et",
-      }
-    : {
-        className: isFollowed ? "unfollow-btn" : "notify-btn",
-        text: isFollowed ? "⭐ Takipten Çık" : "⭐ Stoğa Gelince Bildir",
-      };
-
-  button.textContent = config.text;
-  button.className = config.className;
-}
-
 function addFollowButton() {
+  document.querySelector("#followButtonWrapper")?.remove();
   const existing = document.querySelector("#followButton");
   if (existing) existing.remove();
   const existingAlarm = document.querySelector("#alarmButton");
@@ -184,32 +137,32 @@ function addFollowButton() {
     const targetElement = title.parentElement || title;
     targetElement.insertAdjacentElement("afterend", wrapper);
     button.addEventListener("click", toggleFollow);
-    alarmButton.addEventListener("click", () => openAlarmModal(hbid, product, alarmButton));
+    alarmButton.addEventListener("click", () =>
+      openAlarmModal(hbid, product, alarmButton, {
+        resolveProduct: async (p) => {
+          const bestSeller = await findBestSeller();
+          const bestPrice = await resolvePrice(bestSeller);
+          return {...p, firstPrice: bestPrice, url: bestSeller?.url ?? p.url};
+        },
+        onSave: async (resolved) => {
+          const {id, url, name, firstPrice} = resolved;
+          const {base64: pic, url: picUrl} = await getProductImage();
+          const barcode = getBarcode();
+          await saveToDB([{id, date: formatDateTime(), pic, picUrl}]);
+          await saveToMysql(id, firstPrice, url, name, "hb", barcode);
+        },
+        onRefresh: () => addFollowButton(),
+      }),
+    );
 
     checkCheaperSeller();
-    window.getPriceHistory(hbid);
+    window.getPriceHistory(hbid, "hb");
   });
 }
 
 async function checkCheaperSeller() {
   const bestSeller = await findBestSeller();
   insertCheaperSellerBox(bestSeller);
-}
-
-function insertCheaperSellerBox(bestSeller) {
-  document.querySelector(".cheaper-seller-box")?.remove();
-
-  if (!bestSeller?.price || !bestSeller?.currentPrice) return;
-  if (bestSeller.price >= bestSeller.currentPrice) return;
-
-  const wrapper = document.querySelector("#followButtonWrapper");
-  if (!wrapper) return;
-
-  const box = document.createElement("div");
-  box.className = "cheaper-seller-box";
-  box.innerHTML = `💰 Bu ürünü <strong>${bestSeller.price.toLocaleString("tr-TR")} TL</strong> fiyatına satan farklı bir satıcı var. <a href="${bestSeller.merchantUrl}">Satıcıya git</a>`;
-
-  wrapper.insertAdjacentElement("afterend", box);
 }
 
 async function getProductImage() {
@@ -265,27 +218,15 @@ async function findBestSeller() {
     }
     if (best) best.currentPrice = currentPrice ?? best.price;
     return best;
-  } catch {
+  } catch (error) {
+    console.error("findBestSeller hata:", error);
     return null;
   }
 }
 
 async function resolvePrice(bestSeller) {
   bestSeller = bestSeller || (await findBestSeller());
-  return bestSeller?.price ? `${bestSeller.price.toLocaleString("tr-TR")} TL` : null;
-}
-
-function buildFollowEntry(product, extras = {}) {
-  const {id, name, url, firstPrice} = product;
-  return {
-    id,
-    date: formatDateTime(),
-    name,
-    url,
-    firstPrice: cleanPrice(firstPrice),
-    ...(firstPrice === null && {outOfStock: true}),
-    ...extras,
-  };
+  return bestSeller?.price ?? null;
 }
 
 async function toggleFollow() {
@@ -319,7 +260,7 @@ async function toggleFollow() {
 
       toast("Takip listesine eklendi", "success");
       const barcode = getBarcode();
-      await saveToMysl(id, bestPrice, bestUrl, name, barcode);
+      await saveToMysql(id, bestPrice, bestUrl, name, "hb", barcode);
       addFollowButton();
     } else {
       followList.splice(index, 1);
@@ -333,139 +274,6 @@ async function toggleFollow() {
   } catch (error) {
     console.error("toggleFollow hata:", error);
   }
-}
-
-async function openAlarmModal(hbid, product, alarmButton) {
-  const currentPrice = product.firstPrice || "";
-
-  const overlay = document.createElement("div");
-  overlay.id = "alarmModalOverlay";
-  overlay.className = "alarm-modal-overlay";
-
-  const box = document.createElement("div");
-  box.className = "alarm-modal-box";
-
-  const title = document.createElement("div");
-  title.className = "alarm-modal-title";
-  title.textContent = "🔔 Hedef Fiyat Belirle";
-
-  const productName = document.createElement("div");
-  productName.className = "alarm-modal-product-name";
-  productName.textContent = product.name;
-
-  const input = document.createElement("input");
-  input.type = "text";
-  input.value = currentPrice ? cleanPrice(currentPrice.replace(/[^0-9,]/g, "")) : "";
-  input.placeholder = "Hedef fiyat girin...";
-  input.className = "alarm-modal-input";
-
-  input.addEventListener("input", function (e) {
-    let raw = e.target.value.replace(/[^0-9,]/g, "");
-    let num = parseLocalizedPrice(raw);
-    if (!isNaN(num)) {
-      e.target.value = num.toLocaleString("tr-TR");
-    }
-  });
-
-  const errorDiv = document.createElement("div");
-  errorDiv.className = "alarm-modal-error";
-
-  const actions = document.createElement("div");
-  actions.className = "alarm-modal-actions";
-
-  const cancelBtn = document.createElement("button");
-  cancelBtn.textContent = "İptal";
-  cancelBtn.className = "alarm-modal-cancel";
-
-  const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Kaydet";
-  saveBtn.className = "alarm-modal-save";
-
-  const pctRow = document.createElement("div");
-  pctRow.id = "modal-pct-row";
-  [5, 10, 20, 30, 40, 50].forEach((pct) => {
-    const btn = document.createElement("button");
-    btn.textContent = `%${pct}`;
-    btn.type = "button";
-    btn.addEventListener("click", () => {
-      const currentPriceVal = parseLocalizedPrice(currentPrice || "0");
-      const target = currentPriceVal * (1 - pct / 100);
-      input.value = target.toLocaleString("tr-TR", {minimumFractionDigits: 0, maximumFractionDigits: 2});
-    });
-    pctRow.appendChild(btn);
-  });
-
-  const deleteBtn = document.createElement("button");
-  deleteBtn.textContent = "Hedefi Sil";
-  deleteBtn.className = "alarm-modal-delete";
-  deleteBtn.addEventListener("click", async () => {
-    const data = await browser.storage.sync.get(null);
-    let followList = getBlocks(data);
-    const index = followList.findIndex((item) => item.id === hbid);
-    if (index !== -1) {
-      followList[index].targetPrice = null;
-      await saveToSync(followList);
-    }
-    close();
-    toast("Alarm silindi.", "success");
-    addFollowButton();
-  });
-
-  actions.appendChild(deleteBtn);
-  actions.appendChild(cancelBtn);
-  actions.appendChild(saveBtn);
-  box.append(title, productName, input, pctRow, errorDiv, actions);
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-  setTimeout(() => input.focus(), 50);
-
-  const close = () => overlay.remove();
-  cancelBtn.addEventListener("click", close);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
-
-  saveBtn.addEventListener("click", async () => {
-    const val = parseLocalizedPrice(input.value.trim());
-    const currentPriceVal = parseLocalizedPrice(currentPrice || "0");
-
-    if (isNaN(val) || val <= 0) {
-      errorDiv.textContent = "Geçerli bir fiyat girin.";
-      return;
-    }
-    if (currentPriceVal > 0 && val >= currentPriceVal) {
-      errorDiv.textContent = `Hedef fiyat mevcut fiyattan (${currentPrice}) düşük olmalı.`;
-      return;
-    }
-
-    const data = await browser.storage.sync.get(null);
-    let followList = getBlocks(data);
-    const index = followList.findIndex((item) => item.id === hbid);
-
-    if (index === -1) {
-      const {id, name, url} = product;
-      const bestSeller = await findBestSeller();
-      const bestPrice = await resolvePrice(bestSeller);
-      const bestUrl = bestSeller?.url ?? url;
-      followList.push(buildFollowEntry({...product, firstPrice: bestPrice, url: bestUrl}, {targetPrice: cleanPrice(val)}));
-      const result = await saveToSync(followList);
-      if (!result.success) {
-        errorDiv.textContent = result.message;
-        return;
-      }
-      const {base64: pic, url: picUrl} = await getProductImage();
-      await saveToDB([{id, date: formatDateTime(), pic, picUrl}]);
-      const barcode = getBarcode();
-      await saveToMysl(id, bestPrice, bestUrl, name, barcode);
-    } else {
-      followList[index].targetPrice = cleanPrice(val);
-      await saveToSync(followList);
-    }
-
-    close();
-    toast("Alarm kuruldu!", "success");
-    addFollowButton();
-  });
 }
 
 function getProduct(hbid) {
@@ -490,39 +298,5 @@ function getBarcode() {
   return match?.[1] ?? null;
 }
 
-async function saveToMysl(id, price, url, name, barcode = null) {
-  const cleanedPrice = (price || "").replace(/\s*TL/gi, "").trim();
-  if (parseLocalizedPrice(cleanedPrice) === 0) return;
-  price = cleanedPrice;
-  try {
-    const data = new URLSearchParams();
-    data.append("productId", id);
-    data.append("price", price);
-    data.append("url", url);
-    data.append("productName", name);
-    if (barcode) data.append("barcode", barcode);
-    data.append("platform", "hb");
-    const auth = await window.getAuthHeaders();
-    const res = await fetch("https://aft.web.tr/extension/SavePrice.php", {
-      method: "POST",
-      headers: {"Content-Type": "application/x-www-form-urlencoded", ...auth},
-      body: data,
-    });
-    if (!res.ok) throw new Error("Veri gönderme sırasında hata oluştu.");
-  } catch (error) {
-    console.error("Veri gönderilirken hata oluştu:", error.message);
-  }
-}
-
-function toast(message, type) {
-  const box = document.createElement("div");
-  box.className = `toast ${type}`;
-  box.innerText = message;
-  document.body.querySelector(".toast")?.remove();
-  document.body.appendChild(box);
-  setTimeout(() => box.remove(), 3000);
-}
-
 window.getLivePrice = getPrice;
-window.toast = toast;
 window.findBestSeller = findBestSeller;

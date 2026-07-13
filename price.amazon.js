@@ -1,6 +1,4 @@
 // background > price.amazon.js (bu açıklamayı silme)
-import {buildPrice, parsePrice} from "./utils.js";
-
 if (typeof browser === "undefined") {
   var browser = chrome;
 }
@@ -75,23 +73,10 @@ export async function fetchProductAmazon(url) {
 
   // Fiyat
   let price = null;
-  const containerIDs = ["corePrice_feature_div", "corePriceDisplay_desktop_feature_div"];
-  for (const id of containerIDs) {
-    const block = html.match(new RegExp(`<div[^>]+id=["']${id}["'][^>]*>([\\s\\S]*?)</div>`, "i"))?.[1];
-    if (!block) continue;
-    const whole = block.match(/a-price-whole[^>]*>([\d.,]+)/)?.[1]?.trim();
-    const fraction = block.match(/a-price-fraction[^>]*>(\d+)/)?.[1]?.trim() ?? "00";
-    if (whole) {
-      price = buildPrice(whole, fraction);
-      break;
-    }
-  }
-  if (!price) {
-    const fallback = html.match(
-      /<span[^>]*class=["'][^"']*a-price[^"']*a-size-medium[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*a-offscreen[^"']*["'][^>]*>([^<]+)<\/span>/i,
-    )?.[1];
-    price = fallback?.trim() ?? null;
-  }
+  const rawAmount =
+    html.match(/<input[^>]+id="items\[0\.base\]\[customerVisiblePrice\]\[amount\]"[^>]+value="([^"]+)"/)?.[1] ??
+    html.match(/<input[^>]+value="([^"]+)"[^>]+id="items\[0\.base\]\[customerVisiblePrice\]\[amount\]"/)?.[1];
+  price = rawAmount ? +rawAmount : null;
 
   // Stok adedi
   const stockMatch = html.match(/<span[^>]*class=["'][^"']*primary-availability-message[^"']*["'][^>]*>\s*Stokta sadece\s+(\d+)\s+adet kaldı\.\s*<\/span>/i);
@@ -167,7 +152,7 @@ export async function fetchProductAmazon(url) {
         .trim()
     : null;
 
-  const outOfStock = !isProductUrl ? null : !price || parsePrice(price) <= 0;
+  const outOfStock = !isProductUrl ? null : !price || price <= 0;
   return {price, stockCount, promoText, installment: installment || null, condition, outOfStock};
 }
 
@@ -211,6 +196,7 @@ export async function domProductAmazon(url) {
           },
         })
         .then(async (results) => {
+          if (settled) return;
           const {hasBlackCurtain, hasCaptchaForm} = results?.[0]?.result ?? {};
 
           if (hasBlackCurtain || hasCaptchaForm) {
@@ -242,6 +228,7 @@ export async function domProductAmazon(url) {
             return;
           }
 
+          if (settled) return;
           let asinCheck;
           try {
             asinCheck = await browser.scripting.executeScript({
@@ -258,27 +245,13 @@ export async function domProductAmazon(url) {
             return;
           }
 
+          if (settled) return;
           browser.scripting
             .executeScript({
               target: {tabId},
               func: () => {
-                const containerIDs = ["corePrice_feature_div", "corePriceDisplay_desktop_feature_div"];
-                let whole = null,
-                  fraction = "00";
-                for (const id of containerIDs) {
-                  const el = document.getElementById(id);
-                  if (!el) continue;
-                  whole = el.querySelector(".a-price-whole")?.textContent?.trim().replace(/,+$/, "");
-                  fraction = el.querySelector(".a-price-fraction")?.textContent?.replace(/\./g, "").trim() ?? "00";
-                  if (whole) break;
-                }
-                if (!whole) {
-                  const fallback = document.querySelector(".a-price.a-size-medium .a-offscreen");
-                  if (fallback) {
-                    whole = fallback.textContent.trim();
-                    fraction = null;
-                  }
-                }
+                const priceInput = document.getElementById("items[0.base][customerVisiblePrice][amount]");
+                const rawAmount = priceInput?.value ?? null;
                 const stockEl = document.querySelector(".primary-availability-message");
                 const stockMatch = stockEl?.textContent?.match(/Stokta sadece\s+(\d+)\s+adet/i);
                 const stockCount = stockMatch ? parseInt(stockMatch[1], 10) : null;
@@ -311,23 +284,13 @@ export async function domProductAmazon(url) {
                 });
                 const conditionEl = document.querySelector("#usedOnlyLayoutCondition_feature_div .offer-display-feature-text-message");
                 const condition = conditionEl ? conditionEl.innerText.replace(/İkinci El\s*-\s*/i, "").trim() : null;
-                return {whole, fraction, stockCount, promoText, installment: installment || null, condition};
+                return {rawAmount, stockCount, promoText, installment: installment || null, condition};
               },
             })
             .then((results) => {
-              const {whole, fraction, stockCount, promoText, installment, condition} = results?.[0]?.result ?? {};
-              let price = null;
-              try {
-                if (whole) {
-                  const fractionPart = fraction != null ? fraction : "00";
-                  const raw = `${whole},${fractionPart}`.replace(/\./g, "").replace(",", ".");
-                  const num = parseFloat(raw);
-                  price = isNaN(num) ? `${whole},${fractionPart}`.trim() : num.toLocaleString("tr-TR", {maximumFractionDigits: 2});
-                }
-              } catch (e) {
-                console.error("buildPrice hatası", e);
-              }
-              const parsedPrice = price ? parsePrice(price) : 0;
+              const {rawAmount, stockCount, promoText, installment, condition} = results?.[0]?.result ?? {};
+              const price = rawAmount ? +rawAmount : null;
+              const parsedPrice = price ?? 0;
               const outOfStock = parsedPrice <= 0;
               settleWith({price, stockCount, promoText, installment, condition, outOfStock});
             })

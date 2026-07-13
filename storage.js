@@ -130,10 +130,13 @@ export async function getAllFromSync(key) {
 }
 
 function cleanPrice(price) {
-  return String(price)
-    .replace(/\s*TL/gi, "")
-    .trim()
-    .replace(/,(\d*?)0+$/, (_, d) => (d ? `,${d}` : ""));
+  if (typeof price === "number") return price;
+  const cleaned = String(price).replace(/\s*TL/gi, "").trim();
+  const isTrFormat = cleaned.includes(",");
+  if (isTrFormat) {
+    return parseFloat(cleaned.replace(/\./g, "").replace(",", "."));
+  }
+  return /\.\d{3}$/.test(cleaned) ? parseFloat(cleaned.replace(".", "")) : parseFloat(cleaned.replace(/[^0-9.]/g, ""));
 }
 
 export async function fixProductData() {
@@ -143,11 +146,11 @@ export async function fixProductData() {
     ...(p.group != null && {group: p.group}),
     id: p.id,
     name: p.name,
-    firstPrice: p.firstPrice ?? (p.oldPrice ? cleanPrice(p.oldPrice) : null),
-    newPrice: p.newPrice ? cleanPrice(p.newPrice) : null,
+    firstPrice: p.firstPrice != null ? cleanPrice(p.firstPrice) : p.oldPrice != null ? cleanPrice(p.oldPrice) : null,
+    newPrice: p.newPrice != null ? cleanPrice(p.newPrice) : null,
+    ...(p.targetPrice != null && {targetPrice: cleanPrice(p.targetPrice)}),
     outOfStock: p.outOfStock === true ? true : false,
     ...(p.newPriceDate != null && {newPriceDate: p.newPriceDate}),
-    ...(p.targetPrice != null && {targetPrice: p.targetPrice}),
     url: p.url ?? `https://www.amazon.com.tr/dp/${p.id}?th=1&psc=1`,
   }));
   await saveToSync(updatedProducts);

@@ -43,24 +43,11 @@ document.querySelector("#twister_feature_div")?.addEventListener("click", () => 
   setTimeout(detectAsinChange, 3000);
 });
 
-function getBlocks(data) {
-  return Object.keys(data)
-    .filter((key) => window.PRODUCT_KEY_REGEX.test(key))
-    .map((key) => data[key]);
-}
-
 function getPrice() {
-  const selectors = ["#corePrice_feature_div", "#corePriceDisplay_desktop_feature_div"];
-  for (const sel of selectors) {
-    const el = document.querySelector(sel);
-    if (!el) continue;
-    const getText = (cls, def = "") => el.querySelector(cls)?.textContent.trim() || def;
-    const whole = getText(".a-price-whole");
-    if (whole) return `${whole}${getText(".a-price-fraction", "00")}${getText(".a-price-symbol")}`;
-  }
-
-  const fallback = document.querySelector("#corePrice_feature_div .a-price.a-size-medium .a-offscreen");
-  return fallback?.textContent.trim() || null;
+  const raw = document.getElementById("items[0.base][customerVisiblePrice][amount]")?.value ?? null;
+  if (!raw) return null;
+  const num = parseFloat(raw);
+  return isNaN(num) ? null : num;
 }
 
 function getASIN() {
@@ -73,40 +60,6 @@ function detectAsinChange() {
   if (currentASIN === previousASIN) return;
   previousASIN = currentASIN;
   addFollowButton();
-}
-
-function cleanPrice(price) {
-  if (price === null || price === undefined) return price;
-  let num;
-  if (typeof price === "number") {
-    num = price;
-  } else {
-    const str = String(price).replace(/[^0-9,.]/g, "");
-    num = parseFloat(str.replace(/\./g, "").replace(",", "."));
-  }
-  if (isNaN(num)) return price;
-  return num.toLocaleString("tr-TR");
-}
-
-function updateButton(isFollowed, hasPrice, button, forceSelect = false) {
-  if (!button) return;
-  let config;
-  if (forceSelect) {
-    config = {className: "notify-btn", text: "Takip Etmek için Seçim Yapın"};
-  } else {
-    config = hasPrice
-      ? {
-          className: isFollowed ? "unfollow-btn" : "follow-btn",
-          text: isFollowed ? "⭐ Takipten Çık" : "⭐ Takip Et",
-        }
-      : {
-          className: isFollowed ? "unfollow-btn" : "notify-btn",
-          text: isFollowed ? "⭐ Takipten Çık" : "⭐ Stoğa Gelince Bildir",
-        };
-  }
-
-  button.textContent = config.text;
-  button.className = config.className;
 }
 
 function addFollowButton() {
@@ -144,9 +97,24 @@ function addFollowButton() {
 
     title.insertAdjacentElement("afterend", wrapper);
     button.addEventListener("click", toggleFollow);
-    alarmButton.addEventListener("click", () => openAlarmModal(asin, product, alarmButton));
-    window.getPriceHistory(asin);
-    window.fetchCanonicalPrice(asin);
+    alarmButton.addEventListener("click", () =>
+      openAlarmModal(asin, product, alarmButton, {
+        resolveProduct: async (p) => {
+          const bestSeller = await findBestSeller(p.id);
+          const firstPrice = bestSeller?.price || p.firstPrice;
+          return {...p, firstPrice};
+        },
+        onSave: async (resolved) => {
+          const {id, url, name, firstPrice} = resolved;
+          const {base64: pic, url: picUrl} = await getProductImage();
+          await saveToDB([{id, date: formatDateTime(), pic, picUrl}]);
+          await saveToMysql(id, firstPrice, url, name, "amazon");
+        },
+        onRefresh: () => addFollowButton(),
+      }),
+    );
+    window.getPriceHistory(asin, "amazon");
+    findBestSeller(asin).then((bestSeller) => insertCheaperSellerBox(bestSeller));
   });
 }
 
@@ -172,168 +140,6 @@ async function getProductImage() {
   }
 }
 
-function parseLocalizedPrice(str) {
-  return parseFloat(
-    String(str)
-      .replace(/[^0-9,]/g, "")
-      .replace(/\./g, "")
-      .replace(",", "."),
-  );
-}
-
-async function openAlarmModal(asin, product, alarmButton) {
-  const currentPrice = product.firstPrice || "";
-
-  const overlay = document.createElement("div");
-  overlay.id = "alarmModalOverlay";
-  overlay.className = "alarm-modal-overlay";
-
-  const box = document.createElement("div");
-  box.className = "alarm-modal-box";
-
-  const title = document.createElement("div");
-  title.className = "alarm-modal-title";
-  title.textContent = "🔔 Hedef Fiyat Belirle";
-
-  const productName = document.createElement("div");
-  productName.className = "alarm-modal-product-name";
-  productName.textContent = product.name;
-
-  const input = document.createElement("input");
-  input.type = "text";
-  input.value = currentPrice ? formatNumberForDisplay(currentPrice.replace(/[^0-9,]/g, "")) : "";
-  input.placeholder = "Hedef fiyat girin...";
-  input.className = "alarm-modal-input";
-
-  function formatNumberForDisplay(value) {
-    let num = value.replace(/\./g, "").replace(",", ".");
-    let floatNum = parseFloat(num);
-    if (isNaN(floatNum)) return value;
-    return floatNum.toLocaleString("tr-TR");
-  }
-
-  input.addEventListener("input", function (e) {
-    let raw = e.target.value.replace(/[^0-9,]/g, "");
-    let num = parseLocalizedPrice(raw);
-    if (!isNaN(num)) {
-      e.target.value = num.toLocaleString("tr-TR");
-    }
-  });
-
-  const errorDiv = document.createElement("div");
-  errorDiv.className = "alarm-modal-error";
-
-  const actions = document.createElement("div");
-  actions.className = "alarm-modal-actions";
-
-  const deleteBtn = document.createElement("button");
-  deleteBtn.textContent = "Hedefi Sil";
-  deleteBtn.className = "alarm-modal-delete";
-  deleteBtn.addEventListener("click", async () => {
-    const data = await browser.storage.sync.get(null);
-    let followList = getBlocks(data);
-    const index = followList.findIndex((item) => item.id === asin);
-    if (index !== -1) {
-      followList[index].targetPrice = null;
-      await saveToSync(followList);
-    }
-    close();
-    toast("Alarm silindi.", "success");
-    addFollowButton();
-  });
-
-  const cancelBtn = document.createElement("button");
-  cancelBtn.textContent = "İptal";
-  cancelBtn.className = "alarm-modal-cancel";
-
-  const saveBtn = document.createElement("button");
-  saveBtn.textContent = "Kaydet";
-  saveBtn.className = "alarm-modal-save";
-
-  const pctRow = document.createElement("div");
-  pctRow.id = "modal-pct-row";
-  [5, 10, 20, 30, 40, 50].forEach((pct) => {
-    const btn = document.createElement("button");
-    btn.textContent = `%${pct}`;
-    btn.type = "button";
-    btn.addEventListener("click", () => {
-      const currentPriceVal = parseLocalizedPrice(currentPrice || "0");
-      const target = currentPriceVal * (1 - pct / 100);
-      input.value = target.toLocaleString("tr-TR", {minimumFractionDigits: 0, maximumFractionDigits: 2});
-    });
-    pctRow.appendChild(btn);
-  });
-
-  actions.appendChild(deleteBtn);
-  actions.appendChild(cancelBtn);
-  actions.appendChild(saveBtn);
-  box.append(title, productName, input, pctRow, errorDiv, actions);
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-  setTimeout(() => input.focus(), 50);
-
-  const close = () => overlay.remove();
-  cancelBtn.addEventListener("click", close);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
-
-  saveBtn.addEventListener("click", async () => {
-    const val = parseLocalizedPrice(input.value.trim());
-    const currentPriceVal = parseLocalizedPrice(currentPrice || "0");
-
-    if (isNaN(val) || val <= 0) {
-      errorDiv.textContent = "Geçerli bir fiyat girin.";
-      return;
-    }
-    if (currentPriceVal > 0 && val >= currentPriceVal) {
-      errorDiv.textContent = `Hedef fiyat mevcut fiyattan (${currentPrice}) düşük olmalı.`;
-      return;
-    }
-
-    const data = await browser.storage.sync.get(null);
-    let followList = getBlocks(data);
-    const index = followList.findIndex((item) => item.id === asin);
-
-    if (index === -1) {
-      const {id, name, url} = product;
-      const firstPrice = (await fetchCanonicalPrice(id)) || product.firstPrice;
-      const productWithCanonical = {...product, firstPrice};
-      followList.push(buildFollowEntry(productWithCanonical, {targetPrice: cleanPrice(val)}));
-      const result = await saveToSync(followList);
-      if (!result.success) {
-        errorDiv.textContent = result.message;
-        return;
-      }
-      const {base64: pic, url: picUrl} = await getProductImage();
-      await saveToDB([
-        {id, date: new Date().toLocaleString("tr-TR", {day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"}), pic, picUrl},
-      ]);
-      await saveToMysl(id, firstPrice, url, name);
-    } else {
-      followList[index].targetPrice = cleanPrice(val);
-      await saveToSync(followList);
-    }
-
-    close();
-    toast("Alarm kuruldu!", "success");
-    addFollowButton();
-  });
-}
-
-function buildFollowEntry(product, extras = {}) {
-  const {id, name, url, firstPrice} = product;
-  return {
-    id,
-    date: new Date().toLocaleString("tr-TR", {day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"}),
-    name,
-    url,
-    firstPrice: cleanPrice(firstPrice),
-    ...(firstPrice === null && {outOfStock: true}),
-    ...extras,
-  };
-}
-
 async function toggleFollow() {
   const asin = getASIN();
   if (!asin) return;
@@ -348,11 +154,10 @@ async function toggleFollow() {
     const data = await browser.storage.sync.get(null);
     let followList = getBlocks(data);
     const index = followList.findIndex((item) => item.id === asin);
-    const date = new Date().toLocaleDateString("tr-TR");
-
     if (index === -1) {
       const {id, name, url} = product;
-      const firstPrice = (await fetchCanonicalPrice(id)) || product.firstPrice;
+      const bestSeller = await findBestSeller(id);
+      const firstPrice = bestSeller?.price || product.firstPrice;
       const productWithCanonical = {...product, firstPrice};
       followList.push(buildFollowEntry(productWithCanonical));
 
@@ -365,9 +170,9 @@ async function toggleFollow() {
       }
 
       const {base64: pic, url: picUrl} = await getProductImage();
-      await saveToDB([{id, date, pic, picUrl}]);
+      await saveToDB([{id, date: formatDateTime(), pic, picUrl}]);
       toast("Takip listesine eklendi", "success");
-      await saveToMysl(id, firstPrice, url, name);
+      await saveToMysql(id, firstPrice, url, name, "amazon");
       addFollowButton();
     } else {
       followList.splice(index, 1);
@@ -383,24 +188,19 @@ async function toggleFollow() {
   }
 }
 
-async function saveToMysl(id, price, url, name) {
-  if (parseLocalizedPrice(price || "0") === 0) return;
+async function findBestSeller(asin) {
   try {
-    const data = new URLSearchParams();
-    data.append("productId", id);
-    data.append("price", price);
-    data.append("url", url);
-    data.append("productName", name);
-    data.append("platform", "amazon");
-    const auth = await window.getAuthHeaders();
-    const res = await fetch("https://aft.web.tr/extension/SavePrice.php", {
-      method: "POST",
-      headers: {"Content-Type": "application/x-www-form-urlencoded", ...auth},
-      body: data,
-    });
-    if (!res.ok) throw new Error("Veri gönderme sırasında hata oluştu.");
+    const res = await fetch(`https://www.amazon.com.tr/dp/${asin}?th=1&psc=1`);
+    const html = await res.text();
+    const match = html.match(/"priceAmount":([\d.]+)/);
+    if (!match) return null;
+    const num = parseFloat(match[1]);
+    if (!Number.isFinite(num)) return null;
+    const currentPrice = window.getLivePrice?.() ?? 0;
+    return {price: num, url: `https://www.amazon.com.tr/dp/${asin}?th=1&psc=1`, currentPrice};
   } catch (error) {
-    console.error("Veri gönderilirken hata oluştu:", error.message);
+    console.error("findBestSeller hata:", error);
+    return null;
   }
 }
 
@@ -442,14 +242,4 @@ function getProduct(asin) {
   return product;
 }
 
-function toast(message, type) {
-  const box = document.createElement("div");
-  box.className = `toast ${type}`;
-  box.innerText = message;
-  document.body.querySelector(".toast")?.remove();
-  document.body.appendChild(box);
-  setTimeout(() => box.remove(), 3000);
-}
-
 window.getLivePrice = getPrice;
-window.toast = toast;

@@ -22,17 +22,17 @@
   "content_scripts": [
     {
       "matches": ["*://*.hepsiburada.com/*-p-*", "*://*.hepsiburada.com/*-pm-*"],
-      "js": ["storage.content.js", "src/echarts.min.js", "src/auth.js", "chart.hb.js", "content.hb.js"],
+      "js": ["storage.content.js", "src/echarts.min.js", "src/auth.js", "content.chart.js", "content.shared.js", "content.hb.js"],
       "css": ["css/styles.css"]
     },
     {
       "matches": ["*://*.amazon.com.tr/dp/*", "*://*.amazon.com.tr/*/dp/*", "*://*.amazon.com.tr/gp/product/*", "*://*.amazon.com.tr/*/gp/product/*"],
-      "js": ["storage.content.js", "src/echarts.min.js", "src/auth.js", "chart.amazon.js", "content.amazon.js"],
+      "js": ["storage.content.js", "src/echarts.min.js", "src/auth.js", "content.chart.js", "content.shared.js", "content.amazon.js"],
       "css": ["css/styles.css"]
     },
     {
       "matches": ["*://*.amazon.com.tr/gp/cart*", "*://*.amazon.com.tr/cart*"],
-      "js": ["storage.content.js", "src/auth.js", "content.sepet.js"],
+      "js": ["storage.content.js", "src/auth.js", "content.shared.js", "content.sepet.js"],
       "css": ["css/styles.css"]
     }
   ],

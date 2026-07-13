@@ -1,8 +1,8 @@
 // popup.js
 import {getAllFromSync, saveToSync, clearAllStorage, getAllFromDB, saveToDB} from "./storage.js";
-import {renderProductList, sortByOrder, updateProductRow, calcPercent} from "./table.js";
+import {renderProductList, sortByOrder, updateProductRow, calcPercent} from "./popup.table.js";
 import {checkPrices, cancelPriceCheck} from "./update.js";
-import {parsePrice, parseDate} from "./utils.js";
+import {parseDate} from "./utils.js";
 import {showToast} from "./notifications.js";
 
 if (typeof browser === "undefined") {
@@ -13,7 +13,7 @@ let groupIndex = 0;
 let activeFilter = null;
 
 function calcBasePrice(product, percentMode, oldPriceMap) {
-  return percentMode === "instant" ? parsePrice(oldPriceMap[product.id]?.oldPrice) || parsePrice(product.firstPrice) : parsePrice(product.firstPrice);
+  return percentMode === "instant" ? (oldPriceMap[product.id]?.oldPrice ?? product.firstPrice) : product.firstPrice;
 }
 
 async function getOldPriceMap(products) {
@@ -29,8 +29,8 @@ async function applyFilter(products, {localData, percentMode, oldPriceMap} = {})
   if (activeFilter === "stock-out") return products.filter((p) => p.outOfStock === true);
   if (activeFilter === "target") {
     return products.filter((p) => {
-      const target = parsePrice(p.targetPrice);
-      const cur = parsePrice(p.newPrice);
+      const target = p.targetPrice ?? 0;
+      const cur = p.newPrice ?? 0;
       return target > 0 && cur > 0 && cur <= target;
     });
   }
@@ -40,7 +40,7 @@ async function applyFilter(products, {localData, percentMode, oldPriceMap} = {})
       oldPriceMap != null ? Promise.resolve(oldPriceMap) : getOldPriceMap(products),
     ]);
     return products.filter((p) => {
-      const cur = parsePrice(p.newPrice);
+      const cur = p.newPrice ?? 0;
       const base = calcBasePrice(p, resolvedMode, resolvedMap);
       if (activeFilter === "discount") return cur > 0 && base > 0 && cur < base;
       return cur > 0 && base > 0 && cur > base;
@@ -73,7 +73,7 @@ async function getSortedProducts(sortBy, order, productsList, percentMode = null
       list.sort((a, b) => order * a.name.toUpperCase().localeCompare(b.name.toUpperCase()));
       break;
     case "Nprice":
-      list.sort((a, b) => order * (parsePrice(a.newPrice) - parsePrice(b.newPrice)));
+      list.sort((a, b) => order * ((a.newPrice ?? 0) - (b.newPrice ?? 0)));
       break;
     case "Ndate":
       list.sort((a, b) => order * ((b.newPriceDate ?? 0) - (a.newPriceDate ?? 0)));
@@ -84,7 +84,7 @@ async function getSortedProducts(sortBy, order, productsList, percentMode = null
     case "percent": {
       const resolvedMode = percentMode ?? (await browser.storage.local.get("percentMode")).percentMode ?? "general";
       const oldPriceMap = await getOldPriceMap(list);
-      const percentOf = (p) => calcPercent(parsePrice(p.newPrice), calcBasePrice(p, resolvedMode, oldPriceMap));
+      const percentOf = (p) => calcPercent(p.newPrice ?? 0, calcBasePrice(p, resolvedMode, oldPriceMap));
       list.sort((a, b) => order * (percentOf(a) - percentOf(b)));
       break;
     }
@@ -92,7 +92,7 @@ async function getSortedProducts(sortBy, order, productsList, percentMode = null
   return list;
 }
 
-const SORT_ICONS = {name: "🔤", date: "📅", Nprice: "💰", Ndate: "🕒", percent: "📊"};
+const SORT_ICONS = {name: "🆎", date: "📅", Nprice: "💲", Ndate: "🕒", percent: "📊"};
 
 function updateSortBtnIcon(sortBy, order) {
   const sortBtn = document.getElementById("sort-btn");
@@ -294,7 +294,7 @@ document.addEventListener("DOMContentLoaded", () => {
       deleted = 0;
 
     for (const p of products) {
-      const cur = parsePrice(p.newPrice);
+      const cur = p.newPrice ?? 0;
       const base = calcBasePrice(p, percentMode, oldPriceMap);
 
       if (cur > 0 && base > 0) {
@@ -302,7 +302,7 @@ document.addEventListener("DOMContentLoaded", () => {
         else if (cur < base) down++;
       }
 
-      const t = parsePrice(p.targetPrice);
+      const t = p.targetPrice ?? 0;
       if (t > 0 && cur > 0 && cur <= t) target++;
 
       if (p.outOfStock === true) outOfStock++;

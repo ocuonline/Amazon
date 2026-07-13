@@ -1,57 +1,76 @@
-// chart.amazon.js
-
-async function getPriceHistory(asin) {
+//content.chart.js
+async function getPriceHistory(urunId, platform) {
   try {
     const auth = await window.getAuthHeaders();
-    const res = await fetch(`https://aft.web.tr/extension/GetPrice.php?urun_id=${asin}&platform=amazon`, {
+    const res = await fetch(`https://aft.web.tr/extension/GetPrice.php?urun_id=${urunId}&platform=${platform}`, {
       headers: auth,
     });
     const data = await res.json();
     const hasAftData = Array.isArray(data) && data.length >= 2;
 
     const nowPrice = window.getLivePrice?.();
-    const parsedNow = parseFloat(nowPrice?.replace(/\./g, "").replace(",", "."));
+    const parsedNow = nowPrice ?? 0;
 
-    if (hasAftData && Number.isFinite(parsedNow) && parsedNow > 0) {
-      const updateAuth = await window.getAuthHeaders();
-      const canonicalPrice = (await fetchCanonicalPrice(asin)) || nowPrice;
-      await fetch("https://aft.web.tr/extension/UpdatePrice.php", {
-        method: "POST",
-        headers: {"Content-Type": "application/x-www-form-urlencoded", ...updateAuth},
-        body: new URLSearchParams({urun_id: asin, fiyat: canonicalPrice, platform: "amazon"}),
-      });
+    let rawEntries = hasAftData ? data : [];
+
+    if (Number.isFinite(parsedNow) && parsedNow > 0) {
+      const lastDbPrice = parseFloat(rawEntries.at(-1)?.fiyat);
+      if (lastDbPrice !== parsedNow) {
+        let priceToSave = parsedNow;
+
+        if (platform === "amazon") {
+          console.log("[AFT] lastDbPrice:", lastDbPrice, "| parsedNow:", parsedNow, "| eşit mi:", lastDbPrice === parsedNow);
+          const bestSeller = await window.findBestSeller?.(urunId);
+          priceToSave = bestSeller?.price || parsedNow;
+        }
+
+        await fetch("https://aft.web.tr/extension/UpdatePrice.php", {
+          method: "POST",
+          headers: {"Content-Type": "application/x-www-form-urlencoded", ...auth},
+          body: new URLSearchParams({urun_id: urunId, fiyat: priceToSave, platform}),
+        });
+
+        const auth2 = await window.getAuthHeaders();
+        const res2 = await fetch(`https://aft.web.tr/extension/GetPrice.php?urun_id=${urunId}&platform=${platform}`, {
+          headers: auth2,
+        });
+        const data2 = await res2.json();
+        if (Array.isArray(data2) && data2.length >= 2) rawEntries = data2;
+
+        if (platform === "amazon") {
+          console.log("[AFT] rawEntries son eleman:", rawEntries.at(-1));
+        }
+      }
     }
 
-    const auth2 = await window.getAuthHeaders();
-    const res2 = await fetch(`https://aft.web.tr/extension/GetPrice.php?urun_id=${asin}&platform=amazon`, {
-      headers: auth2,
-    });
-    const data2 = await res2.json();
-    const hasAftData2 = Array.isArray(data2) && data2.length >= 2;
-
-    const yanyoEntries = await fetchYanyoData(asin);
+    const yanyoEntries = platform === "amazon" ? await fetchYanyoData(urunId) : [];
     const hasYanyo = yanyoEntries.length >= 2;
 
-    if (!hasAftData2 && !hasYanyo) return;
+    if (!rawEntries.length && !hasYanyo) {
+      if (platform === "hb") return;
+    }
 
-    const rawEntries = hasAftData2 ? data2 : [];
-    const hasYanyo2 = yanyoEntries.length >= 2;
-    const {mesaj, sınıf} = hasAftData2 ? getPriceMessage(data2, nowPrice) : hasYanyo2 ? getPriceMessage(yanyoEntries, nowPrice) : {mesaj: "", sınıf: "bilgi"};
+    let mesaj, sınıf;
+    if (rawEntries.length >= 2) {
+      ({mesaj, sınıf} = getPriceMessage(rawEntries));
+    } else if (hasYanyo) {
+      ({mesaj, sınıf} = getPriceMessage(yanyoEntries));
+    } else {
+      if (!rawEntries.length) return;
+      ({mesaj, sınıf} = getPriceMessage(rawEntries));
+    }
 
-    const labels = rawEntries.map((d) => new Date(d.tarih).toLocaleDateString("tr-TR"));
-    const dataPoints = rawEntries.map((d) => parseFloat(d.fiyat));
-
-    insertBox(sınıf, mesaj, labels, dataPoints, rawEntries, yanyoEntries);
+    insertBox(sınıf, mesaj, rawEntries, yanyoEntries, platform);
   } catch (err) {
     console.error("getPriceHistory hata:", err);
   }
 }
 
-function getPriceMessage(data, nowPrice) {
+function getPriceMessage(data) {
   const V = {...data.at(-1), tarih: new Date(data.at(-1).tarih)};
   const fiyatlar = data.map((d) => ({tarih: new Date(d.tarih), fiyat: parseFloat(d.fiyat)})).filter((d) => Number.isFinite(d.fiyat));
 
-  const N = parseFloat(nowPrice?.replace(/\./g, "").replace(",", "."));
+  const N = fiyatlar.at(-1).fiyat;
   const B = fiyatlar.at(-2);
   const L = fiyatlar.reduce((a, b) => (b.fiyat < a.fiyat ? b : a));
   const maxFiyat = Math.max(...fiyatlar.map((d) => d.fiyat));
@@ -78,7 +97,6 @@ function getPriceMessage(data, nowPrice) {
     sınıf = "bilgi";
   } else if (N < B.fiyat) {
     mesaj = `📉 (%${yüzde} indirim) ${akış}`;
-
     if (N === L.fiyat) {
       mesaj += `<br><br>Son ${T} günün En Düşük fiyatı.`;
       if (enDusukTekrar.length > 1) {
@@ -89,7 +107,6 @@ function getPriceMessage(data, nowPrice) {
     } else if (Y) {
       mesaj += `<br><br>${format(Y.tarih)} tarihinden sonra En Uygun Fiyat.`;
     }
-
     sınıf = "indirim";
   } else if (N > B.fiyat) {
     mesaj = `📈 (%${yüzde} zam) ${akış}`;
@@ -116,44 +133,38 @@ function format(date) {
   return d.toLocaleDateString("tr-TR");
 }
 
-function insertBox(cls, html, labels, dataPoints, rawEntries, yanyoEntries = []) {
+function insertBox(cls, html, rawEntries, yanyoEntries = [], platform) {
   document.querySelector(".price-history-box")?.remove();
 
   const box = document.createElement("div");
   box.className = `price-history-box ${cls}`;
-  box.innerHTML = html;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  box.appendChild(template.content.cloneNode(true));
   box.style.position = "relative";
 
   const shareBtn = document.createElement("button");
   shareBtn.textContent = "Paylaş";
-  shareBtn.style.cssText = `
-    display: inline-block;
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    padding: 4px 8px;
-    font-size: 12px;
-    cursor: pointer;
-    z-index: 10;
-    background-color: #ff7300ff;
-    border: 1px solid #0059ffff;
-    border-radius: 4px;
-    color: #333;
-  `;
+  shareBtn.className = "share-btn";
 
   shareBtn.onclick = async () => {
-    const tempDiv = Object.assign(document.createElement("div"), {
-      style: {position: "absolute", left: "-9999px"},
-    });
+    const tempDiv = document.createElement("div");
+    tempDiv.style.cssText = "position:absolute;left:-9999px;";
     document.body.appendChild(tempDiv);
 
     const boxClone = box.cloneNode(true);
     boxClone.querySelector("button")?.remove();
     tempDiv.appendChild(boxClone);
 
-    const idMatch = window.location.pathname.match(/\/(?:dp|gp\/product)\/([^\/]+)/);
-    const id = idMatch?.[1];
-    const url = `https://www.amazon.com.tr/dp/${id}?th=1&psc=1`;
+    let url;
+    if (platform === "amazon") {
+      const idMatch = window.location.pathname.match(/\/(?:dp|gp\/product)\/([^\/]+)/);
+      const id = idMatch?.[1];
+      url = `https://www.amazon.com.tr/dp/${id}?th=1&psc=1`;
+    } else {
+      const pmMatch = window.location.href.match(/(pm?-[A-Z0-9]+)(?:[/?]|$)/i);
+      url = pmMatch ? `https://www.hepsiburada.com/-${pmMatch[1]}` : window.location.href.split("?")[0];
+    }
 
     const urlPara = document.createElement("p");
     urlPara.textContent = url;
@@ -163,7 +174,7 @@ function insertBox(cls, html, labels, dataPoints, rawEntries, yanyoEntries = [])
     try {
       await navigator.clipboard.writeText(tempDiv.innerText);
       window.toast("Ürün bilgisi kopyalandı.", "success");
-    } catch (err) {
+    } catch {
       window.toast("Kopyalama başarısız.", "error");
     }
 
@@ -174,13 +185,11 @@ function insertBox(cls, html, labels, dataPoints, rawEntries, yanyoEntries = [])
 
   const target = document.querySelector("#followButtonWrapper");
   if (target) target.insertAdjacentElement("afterend", box);
-  const chartContainer = document.querySelector("#chartDiv")?.parentElement;
-  if (chartContainer) chartContainer.remove();
+  document.querySelector("#chartDiv")?.parentElement?.remove();
 
-  insertChartAfterPPD(labels, dataPoints, rawEntries, yanyoEntries);
+  insertChartAfterContent(rawEntries, yanyoEntries, platform);
 }
 
-//grafik ekleme
 const PERIODS = {"1yıl": 12, "6ay": 6, "3ay": 3, "1ay": 1};
 
 function filterByPeriod(rawEntries, ay) {
@@ -189,46 +198,38 @@ function filterByPeriod(rawEntries, ay) {
   return rawEntries.filter((e) => new Date(e.tarih) >= start);
 }
 
-function insertChartAfterPPD(labels, dataPoints, rawEntries, yanyoEntries = []) {
-  const EndDiv = document.querySelector("#ATFCriticalFeaturesDataContainer");
-  if (!EndDiv) return;
+function insertChartAfterContent(rawEntries, yanyoEntries = [], platform) {
+  const anchorEl =
+    platform === "amazon"
+      ? document.querySelector("#ATFCriticalFeaturesDataContainer")
+      : document.querySelector("#followButtonWrapper") || document.querySelector('h1[data-test-id="title"]');
 
-  if ((!Array.isArray(rawEntries) || rawEntries.length === 0) && yanyoEntries.length === 0) {
+  if (!anchorEl) return;
+
+  const hasRaw = Array.isArray(rawEntries) && rawEntries.length > 0;
+  const hasYanyo = yanyoEntries.length > 0;
+
+  if (!hasRaw && !hasYanyo) {
     const noDataDiv = document.createElement("div");
     noDataDiv.id = "chartDiv";
     noDataDiv.className = "no-data";
     noDataDiv.textContent = "Grafik verisi bulunamadı.";
-    EndDiv.insertAdjacentElement("afterend", noDataDiv);
+    anchorEl.insertAdjacentElement("afterend", noDataDiv);
     return;
   }
 
+  document.querySelector("#priceChartContainer")?.remove();
+
   const toggleState = {aft: true, yanyo: true};
+  let currentPeriod = 12;
 
   const container = document.createElement("div");
   container.id = "priceChartContainer";
   container.className = "chart-container";
 
-  // Toggle butonları
-  const toggleGroup = document.createElement("div");
-  toggleGroup.className = "chart-btn-group toggle-group-right";
-
-  ["AFT", "Yaniyo"].forEach((label) => {
-    const key = label === "AFT" ? "aft" : "yanyo";
-    const btn = document.createElement("button");
-    btn.textContent = label;
-    btn.className = "chart-period-btn active";
-    btn.addEventListener("click", () => {
-      toggleState[key] = !toggleState[key];
-      btn.classList.toggle("active", toggleState[key]);
-      updateChart(chart, filterByPeriod(rawEntries, currentPeriod), filterByPeriod(yanyoEntries, currentPeriod), toggleState);
-    });
-    toggleGroup.appendChild(btn);
-  });
-
   // Periyot butonları
   const btnGroup = document.createElement("div");
   btnGroup.className = "chart-btn-group";
-  let currentPeriod = 12;
 
   Object.keys(PERIODS).forEach((key) => {
     const btn = document.createElement("button");
@@ -244,49 +245,83 @@ function insertChartAfterPPD(labels, dataPoints, rawEntries, yanyoEntries = []) 
     btnGroup.appendChild(btn);
   });
 
+  container.appendChild(btnGroup);
+
+  // Toggle butonları — sadece Amazon + Yanyo verisi varsa
+  if (platform === "amazon") {
+    const toggleGroup = document.createElement("div");
+    toggleGroup.className = "chart-btn-group toggle-group-right";
+
+    ["AFT", "Yaniyo"].forEach((label) => {
+      const key = label === "AFT" ? "aft" : "yanyo";
+      const btn = document.createElement("button");
+      btn.textContent = label;
+      btn.className = "chart-period-btn active";
+      btn.addEventListener("click", () => {
+        toggleState[key] = !toggleState[key];
+        btn.classList.toggle("active", toggleState[key]);
+        updateChart(chart, filterByPeriod(rawEntries, currentPeriod), filterByPeriod(yanyoEntries, currentPeriod), toggleState);
+      });
+      toggleGroup.appendChild(btn);
+    });
+
+    container.appendChild(toggleGroup);
+  }
+
   const chartDiv = document.createElement("div");
   chartDiv.id = "chartDiv";
   chartDiv.className = "chart-area";
-
-  container.appendChild(btnGroup);
-  container.appendChild(toggleGroup);
   container.appendChild(chartDiv);
-  EndDiv.insertAdjacentElement("afterend", container);
+
+  if (platform === "amazon") {
+    anchorEl.insertAdjacentElement("afterend", container);
+  } else {
+    const campaignBundle = document.querySelector('[data-test-id="campaign-bundle"]');
+    if (campaignBundle) {
+      campaignBundle.insertAdjacentElement("beforebegin", container);
+    } else if (document.querySelector(".price-history-box")) {
+      document.querySelector(".price-history-box").insertAdjacentElement("afterend", container);
+    } else {
+      anchorEl.insertAdjacentElement("afterend", container);
+    }
+  }
+
+  if (insertChartAfterContent._chartInstance) {
+    insertChartAfterContent._chartInstance.dispose();
+  }
 
   const chart = echarts.init(chartDiv);
+  insertChartAfterContent._chartInstance = chart;
 
-  currentPeriod = 12;
-  btnGroup.querySelectorAll("button").forEach((b) => {
-    b.classList.toggle("active", b.textContent === "1 Yıl");
-  });
-  const initialEntries = filterByPeriod(rawEntries, 12);
-  const initialYanyo = filterByPeriod(yanyoEntries, 12);
-  updateChart(chart, initialEntries, initialYanyo, toggleState);
-  window.addEventListener("resize", () => chart.resize());
+  updateChart(chart, filterByPeriod(rawEntries, currentPeriod), filterByPeriod(yanyoEntries, currentPeriod), toggleState);
+
+  if (insertChartAfterContent._resizeHandler) {
+    window.removeEventListener("resize", insertChartAfterContent._resizeHandler);
+  }
+  insertChartAfterContent._resizeHandler = () => chart.resize();
+  window.addEventListener("resize", insertChartAfterContent._resizeHandler);
 }
 
 function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true, yanyo: true}) {
   if ((!entries || entries.length === 0) && yanyoEntries.length === 0) return;
   entries = entries || [];
 
-  const aftPoints = toggleState.aft ? entries.map((e) => parseFloat(e.fiyat)) : [];
   const aftLabels = toggleState.aft ? entries.map((e) => new Date(e.tarih).toLocaleDateString("tr-TR")) : [];
-
-  const yanyoPoints = toggleState.yanyo && yanyoEntries.length > 0 ? yanyoEntries.map((e) => parseFloat(e.fiyat)) : [];
   const yanyoLabels = toggleState.yanyo && yanyoEntries.length > 0 ? yanyoEntries.map((e) => new Date(e.tarih).toLocaleDateString("tr-TR")) : [];
 
   const allLabels = [...new Set([...aftLabels, ...yanyoLabels])].sort(
     (a, b) => new Date(a.split(".").reverse().join("-")) - new Date(b.split(".").reverse().join("-")),
   );
 
+  const aftPoints = toggleState.aft ? entries.map((e) => parseFloat(e.fiyat)) : [];
+  const yanyoPoints = toggleState.yanyo && yanyoEntries.length > 0 ? yanyoEntries.map((e) => parseFloat(e.fiyat)) : [];
   const allPoints = [...aftPoints, ...yanyoPoints].filter(Number.isFinite);
+
   const minY = allPoints.length ? Math.min(...allPoints) - 10 : 0;
   const maxY = allPoints.length ? Math.max(...allPoints) + 10 : 100;
 
-  const dataPoints = aftPoints;
-  const labels = allLabels;
-
   chart.setOption({
+    replaceMerge: ["series"],
     grid: {left: "0%", right: "0%", bottom: "0%", top: "5%", containLabel: true},
     tooltip: {
       trigger: "axis",
@@ -294,11 +329,10 @@ function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true
       formatter: (params) => {
         return params
           .map((param) => {
-            const seriesName = param.seriesName;
             const i = param.dataIndex;
-            const label = labels[i];
-            const sourceEntries = seriesName === "Yaniyo" ? yanyoEntries : entries;
-            const e = sourceEntries.find((e) => new Date(e.tarih).toLocaleDateString("tr-TR") === label);
+            const label = allLabels[i];
+            const sourceEntries = param.seriesName === "Yaniyo" ? yanyoEntries : entries;
+            const e = sourceEntries.findLast((e) => new Date(e.tarih).toLocaleDateString("tr-TR") === label);
             if (!e) return "";
 
             const idx = sourceEntries.indexOf(e);
@@ -313,8 +347,9 @@ function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true
               down = val < prev;
             const arrow = up ? "⬆" : down ? "⬇" : "⟷";
             const color = up ? "#D32F2F" : down ? "#388E3C" : "#333";
-            return `<div style="color:${color};font-weight:bold;">[${seriesName}] ${arrow} %${pct} - ₺${val}</div>
-                  <div style="color:#555;">${date} ${time}</div>`;
+            const seriesLabel = yanyoEntries.length > 0 ? `[${param.seriesName}] ` : "";
+            return `<div style="color:${color};font-weight:bold;">${seriesLabel}${arrow} %${pct} - ₺${val}</div>
+                    <div style="color:#555;">${date} ${time}</div>`;
           })
           .filter(Boolean)
           .join("<hr style='margin:4px 0;border-color:#eee;'/>");
@@ -322,8 +357,8 @@ function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true
     },
     xAxis: {
       type: "category",
-      data: labels,
-      axisLabel: {interval: Math.floor(labels.length / 10)},
+      data: allLabels,
+      axisLabel: {interval: Math.floor(allLabels.length / 10)},
     },
     yAxis: {
       type: "value",
@@ -335,8 +370,8 @@ function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true
       {
         name: "AFT",
         data: toggleState.aft
-          ? labels.map((l) => {
-              const e = entries.find((e) => new Date(e.tarih).toLocaleDateString("tr-TR") === l);
+          ? allLabels.map((l) => {
+              const e = entries.findLast((e) => new Date(e.tarih).toLocaleDateString("tr-TR") === l);
               return e ? parseFloat(e.fiyat) : null;
             })
           : [],
@@ -368,12 +403,13 @@ function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true
       },
       {
         name: "Yaniyo",
-        data: toggleState.yanyo
-          ? labels.map((l) => {
-              const e = yanyoEntries.find((e) => new Date(e.tarih).toLocaleDateString("tr-TR") === l);
-              return e ? parseFloat(e.fiyat) : null;
-            })
-          : [],
+        data:
+          toggleState.yanyo && yanyoEntries.length > 0
+            ? allLabels.map((l) => {
+                const e = yanyoEntries.find((e) => new Date(e.tarih).toLocaleDateString("tr-TR") === l);
+                return e ? parseFloat(e.fiyat) : null;
+              })
+            : [],
         type: "line",
         smooth: true,
         connectNulls: true,
@@ -401,80 +437,49 @@ async function fetchYanyoData(asin) {
   const PRICE_KEY = "dfwqs";
   const DATE_KEY = "rohs";
 
-  const productApiUrl = `https://apiv2.yaniyo.com/api/product/id/${asin}`;
-
   try {
-    const response = await fetch(productApiUrl, {credentials: "omit"});
-    if (!response.ok) {
-      console.error("Yanyo API HTTP error:", response.status);
-      return [];
-    }
+    const response = await fetch(`https://apiv2.yaniyo.com/api/product/id/${asin}`);
+    if (!response.ok) return [];
 
     const rawText = await response.text();
-    const regex = new RegExp(`"${PRICE_HISTORY_ARRAY_KEY}"\\s*:\\s*(\\[[\\s\\S]*?\\])`, "i");
+    const regex = new RegExp(`"${PRICE_HISTORY_ARRAY_KEY}"\\s*:\\s*(\\[[\\s\\S]*\\])`, "i");
     const match = rawText.match(regex);
-
     if (!match?.[1]) return [];
 
-    const obfuscatedArray = JSON.parse(match[1]);
+    const arrayText = rawText.slice(rawText.indexOf(`"${PRICE_HISTORY_ARRAY_KEY}"`));
+    const start = arrayText.indexOf("[");
+    let depth = 0,
+      end = -1;
+    for (let i = start; i < arrayText.length; i++) {
+      if (arrayText[i] === "[" || arrayText[i] === "{") depth++;
+      else if (arrayText[i] === "]" || arrayText[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (start === -1 || end === -1) return [];
+    const obfuscatedArray = JSON.parse(arrayText.slice(start, end + 1));
     if (!Array.isArray(obfuscatedArray)) return [];
 
     return obfuscatedArray
       .map((item) => {
         let date = item[DATE_KEY];
         const price = item[PRICE_KEY];
-
         if (price === null || date === null || typeof date !== "string" || isNaN(parseFloat(price))) return null;
-
         if (date.endsWith("N")) date = date.slice(0, -1) + "Z";
         if (date.charAt(10) === "H") date = date.slice(0, 10) + "T" + date.slice(11);
-
         const dateObj = new Date(date);
-        if (isNaN(dateObj.getTime())) {
-          console.warn("Geçersiz tarih, atlanıyor:", item[DATE_KEY]);
-          return null;
-        }
-
-        return {
-          fiyat: parseFloat(price).toFixed(2),
-          tarih: dateObj.toISOString(),
-        };
+        if (isNaN(dateObj.getTime())) return null;
+        return {tarih: dateObj.toISOString(), fiyat: parseFloat(price).toFixed(2)};
       })
       .filter(Boolean);
-  } catch (error) {
-    console.error("Yanyo fetch/parse hatası:", error);
+  } catch (err) {
+    console.error("[Yanyo] fetchYanyoData hata:", err);
     return [];
   }
 }
 
-async function fetchCanonicalPrice(asin) {
-  try {
-    const res = await fetch(`https://www.amazon.com.tr/dp/${asin}?th=1&psc=1`);
-    const html = await res.text();
-    const match = html.match(/"priceAmount":([\d.]+)/);
-    if (!match) return null;
-    const num = parseFloat(match[1]);
-    if (!Number.isFinite(num)) return null;
-    const canonicalUrl = `https://www.amazon.com.tr/dp/${asin}?th=1&psc=1`;
-    insertCheaperSellerBox(num, canonicalUrl);
-    return num.toLocaleString("tr-TR");
-  } catch {
-    return null;
-  }
-}
-
-function insertCheaperSellerBox(canonicalPrice, canonicalUrl) {
-  document.querySelector(".cheaper-seller-box")?.remove();
-  const nowPrice = window.getLivePrice?.();
-  const currentPrice = parseFloat((nowPrice || "").replace(/\./g, "").replace(",", "."));
-  if (!Number.isFinite(currentPrice) || canonicalPrice >= currentPrice) return;
-  const wrapper = document.querySelector("#followButtonWrapper");
-  if (!wrapper) return;
-  const box = document.createElement("div");
-  box.className = "cheaper-seller-box";
-  box.innerHTML = `💰 Bu ürünü <strong>${canonicalPrice.toLocaleString("tr-TR")} TL</strong> fiyatına satan farklı bir satıcı var. <a href="${canonicalUrl}">Satıcıya Git</a>`;
-  wrapper.insertAdjacentElement("afterend", box);
-}
-
 window.getPriceHistory = getPriceHistory;
-window.fetchCanonicalPrice = fetchCanonicalPrice;

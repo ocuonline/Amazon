@@ -19,28 +19,6 @@ export function formatDate(timestamp) {
   });
 }
 
-export function parsePrice(price) {
-  if (!price) return 0;
-  const cleanedPrice = String(price)
-    .replace(/[^0-9,]/g, "")
-    .replace(/\./g, "")
-    .replace(/,/g, ".");
-  const parsed = parseFloat(cleanedPrice);
-  return isNaN(parsed) ? 0 : parsed;
-}
-
-export function buildPrice(whole, fraction) {
-  if (!whole) return null;
-  if (fraction !== null && fraction !== undefined) {
-    const raw = `${whole},${fraction}`.replace(/\./g, "").replace(",", ".");
-    const num = parseFloat(raw);
-    return isNaN(num) ? `${whole},${fraction}`.trim() : num.toLocaleString("tr-TR", {maximumFractionDigits: 2});
-  }
-  const raw = whole.replace(/\s*TL/gi, "").trim().replace(/,+$/, "").replace(/\./g, "").replace(",", ".");
-  const num = parseFloat(raw);
-  return isNaN(num) ? whole.trim() : num.toLocaleString("tr-TR", {maximumFractionDigits: 2});
-}
-
 export function getTimeAgo(timestamp) {
   const ts = timestamp > 1e12 ? timestamp : timestamp * 1000;
   const diff = Math.floor((Date.now() - ts) / 1000);

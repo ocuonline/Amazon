@@ -348,3 +348,23 @@
   color: #1a73e8;
   text-decoration: underline;
 }
+
+.share-btn {
+  display: inline-block;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  z-index: 10;
+  background-color: #ff7300;
+  border: 1px solid #0059ff;
+  border-radius: 4px;
+  color: #333;
+}
+
+.offscreen-clone {
+  position: absolute;
+  left: -9999px;
+}

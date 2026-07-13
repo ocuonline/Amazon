@@ -1,5 +1,5 @@
 // background > update.js (bu açıklamayı silme)
-import {LastUpdateTime, parsePrice, formatTL} from "./utils.js";
+import {LastUpdateTime} from "./utils.js";
 import {fetchProductAmazon, domProductAmazon} from "./price.amazon.js";
 import {sendPriceChange, sendDeletedProduct} from "./sendUrl.js";
 import {fetchProductHB, domProductHB} from "./price.hb.js";
@@ -65,8 +65,8 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       });
 
       const prevPrice = product.newPrice ?? product.firstPrice ?? null;
-      const fetchedPrice = prevPrice !== null ? parsePrice(prevPrice) : 0;
-      const targetPrice = parsePrice(product.targetPrice);
+      const fetchedPrice = prevPrice ?? 0;
+      const targetPrice = product.targetPrice ?? 0;
 
       const isHB = product.url.includes("hepsiburada.com");
       const prevOutOfStock = product.outOfStock;
@@ -98,8 +98,8 @@ export async function checkPrices(productId = null, onProductChecked = null) {
         return;
       }
 
-      const newPrice = parsePrice(updatedPrice);
-      const resolvedPrev = prevPrice !== null ? parsePrice(prevPrice) : null;
+      const newPrice = updatedPrice ?? 0;
+      const resolvedPrev = prevPrice ?? null;
       if (resolvedPrev !== null && newPrice !== resolvedPrev) {
         const data = (await browser.storage.local.get(product.id))[product.id] || {};
         await browser.storage.local.set({[product.id]: {...data, oldPrice: prevPrice}});
@@ -118,7 +118,7 @@ export async function checkPrices(productId = null, onProductChecked = null) {
         }
       }
 
-      if (prevOutOfStock === true && outOfStock === false && parsePrice(updatedPrice) > 0) {
+      if (prevOutOfStock === true && outOfStock === false && updatedPrice > 0) {
         console.log(`Stoğa girdi -> ${product.id}: ${newPrice}`);
         if (!product.firstPrice) {
           product.firstPrice = updatedPrice;
@@ -251,17 +251,14 @@ export async function updateProductPrice(product, fetchMode) {
     }
 
     if (isHB && bestSeller && bestSeller.price > 0) {
-      const finalPrice = bestPrice;
-      const finalPriceStr = formatTL(finalPrice);
-
       if (bestSeller.url) {
         product.url = bestSeller.url;
       }
       const prevPrice = product.newPrice ?? product.firstPrice;
-      if (finalPriceStr !== prevPrice) {
+      if (bestPrice !== prevPrice) {
         product.newPriceDate = Date.now();
       }
-      product.newPrice = finalPriceStr;
+      product.newPrice = bestPrice;
 
       const productData = (await browser.storage.local.get(product.id))[product.id] || {};
       if (installment != null) {
@@ -275,7 +272,7 @@ export async function updateProductPrice(product, fetchMode) {
         delete productData.campaigns;
       }
       await browser.storage.local.set({[product.id]: productData});
-      return {newPrice: finalPriceStr, newPriceDate: product.newPriceDate, outOfStock: false};
+      return {newPrice: bestPrice, newPriceDate: product.newPriceDate, outOfStock: false};
     }
 
     // Amazon veya HB fallback
@@ -303,7 +300,7 @@ export async function updateProductPrice(product, fetchMode) {
     }
     await browser.storage.local.set({[product.id]: productData});
 
-    if (currentPrice && parsePrice(currentPrice) > 0) {
+    if (currentPrice && currentPrice > 0) {
       const prevPrice = product.newPrice ?? product.firstPrice;
       if (currentPrice !== prevPrice) {
         product.newPriceDate = Date.now();
@@ -328,11 +325,11 @@ export async function updateBadgeCount(products) {
 
   const counts = products.reduce(
     (acc, p) => {
-      const old = parsePrice(p.prevPrice);
-      const cur = parsePrice(p.newPrice);
+      const old = p.prevPrice ?? 0;
+      const cur = p.newPrice ?? 0;
       if (cur <= 0) return acc;
       if (old > 0 && cur < old) acc.discount++;
-      else if (p._prevOutOfStock === true && p.outOfStock === false && parsePrice(p.newPrice) > 0) acc.stock++;
+      else if (p._prevOutOfStock === true && p.outOfStock === false && p.newPrice > 0) acc.stock++;
       else if (old > 0 && cur > old) acc.increase++;
       return acc;
     },

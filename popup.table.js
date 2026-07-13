@@ -1,7 +1,7 @@
 // popup > table.js
 import {getAllFromSync, saveToSync, removeFromSync, getAllFromDB, saveToDB} from "./storage.js";
-import {fetchProductData, renderChart} from "./chart.popup.js";
-import {formatDate, getTimeAgo, formatTL, parsePrice} from "./utils.js";
+import {fetchProductData, renderChart} from "./popup.chart.js";
+import {formatDate, getTimeAgo, formatTL} from "./utils.js";
 import {showToast} from "./notifications.js";
 import {checkPrices} from "./update.js";
 
@@ -47,11 +47,11 @@ export function openAlarmModal(product, alarmWrapper, oldPriceFormatted) {
   const sig = ac.signal;
 
   productName.textContent = product.name;
-  const initialVal = product.targetPrice || parsePrice(product.firstPrice) || "";
+  const initialVal = product.targetPrice ?? product.firstPrice ?? "";
   input.value = initialVal ? formatTL(initialVal) : "";
   modal.style.display = "flex";
 
-  const currentPrice = parsePrice(product.firstPrice);
+  const currentPrice = product.firstPrice ?? 0;
   if (!_alarmPctRow) {
     _alarmPctRow = document.createElement("div");
     _alarmPctRow.id = "modal-pct-row";
@@ -82,7 +82,7 @@ export function openAlarmModal(product, alarmWrapper, oldPriceFormatted) {
 
   const save = async () => {
     const rawVal = input.value.trim();
-    const oldPriceVal = parsePrice(product.firstPrice);
+    const oldPriceVal = product.firstPrice ?? 0;
 
     // Türk formatı düzeltme: "8.570,50" → 8570.50, "8570" → 8570
     const normalized = rawVal.replace(/\./g, "").replace(",", ".");
@@ -291,11 +291,11 @@ function createNameCell(product, localData) {
 
   const metaDiv = document.createElement("div");
   metaDiv.className = "product-meta";
-  const oldPriceFormatted = product.firstPrice ? `₺ ${product.firstPrice}` : "";
+  const oldPriceFormatted = product.firstPrice ? `₺ ${formatTL(product.firstPrice)}` : "";
 
   const metaLeft = document.createElement("span");
   metaLeft.textContent = `📅 ${product.date ? product.date.split(" ")[0] : "—"}`;
-  const displayTarget = product.targetPrice ? `₺ ${product.targetPrice}` : oldPriceFormatted || "—";
+  const displayTarget = product.targetPrice ? `₺ ${formatTL(product.targetPrice)}` : oldPriceFormatted || "—";
   const alarmWrapper = document.createElement("span");
   alarmWrapper.className = "alarm-wrapper";
   alarmWrapper.title = "Hedef fiyat belirle";
@@ -367,18 +367,18 @@ function createPriceCell(product, percentMode, oldPriceRaw) {
   let priceText = null;
   if (newPrice) {
     const compareBase = percentMode === "instant" && oldPriceRaw ? oldPriceRaw : oldPrice;
-    const old = parsePrice(compareBase),
-      _new = parsePrice(newPrice);
+    const old = compareBase ?? 0,
+      _new = newPrice ?? 0;
 
     priceText = document.createElement("div");
     priceText.className = "price-value";
     const priceColorClass = !old ? "price-new" : _new < old ? "price-down" : _new > old ? "price-up" : "price-same";
     priceText.classList.add(priceColorClass);
-    priceText.textContent = `₺ ${newPrice}`;
+    priceText.textContent = `₺ ${formatTL(newPrice)}`;
 
     const subPrice = document.createElement("div");
     subPrice.className = "price-old";
-    subPrice.textContent = oldPriceRaw && oldPriceRaw !== newPrice ? `₺ ${oldPriceRaw}` : "";
+    subPrice.textContent = oldPriceRaw && oldPriceRaw !== newPrice ? `₺ ${formatTL(oldPriceRaw)}` : "";
 
     const timeAgo = document.createElement("div");
     timeAgo.className = "price-time-ago";
@@ -432,8 +432,8 @@ export async function createProductRow(product, productList, order, picMap = new
   productRow.className = "product-row";
   productRow.dataset.id = product.id;
   const oldPriceRaw = localData.oldPrice ?? null;
-  const fetched = parsePrice(product.newPrice);
-  const basePrice = percentMode === "instant" && oldPriceRaw ? parsePrice(oldPriceRaw) : fetched > 0 ? parsePrice(product.firstPrice) || 0 : 0;
+  const fetched = product.newPrice ?? 0;
+  const basePrice = percentMode === "instant" && oldPriceRaw ? oldPriceRaw : fetched > 0 ? (product.firstPrice ?? 0) : 0;
 
   productRow.appendChild(createCheckCell(product));
   productRow.appendChild(createGroupCell(product, order, productList));
@@ -446,8 +446,8 @@ export async function createProductRow(product, productList, order, picMap = new
   productRow.appendChild(newPriceCell);
 
   if (localData.stockIn && priceText && product.outOfStock === false) {
-    const old = parsePrice(product.firstPrice);
-    const cur = parsePrice(product.newPrice);
+    const old = product.firstPrice ?? 0;
+    const cur = product.newPrice ?? 0;
     if (old > 0 && cur === old) {
       priceText.classList.remove("price-down", "price-up", "price-same");
       priceText.classList.add("price-new");
@@ -487,7 +487,8 @@ export function setupProductListEvents(productList) {
           newIcon.classList.add("checked");
           newBtn.disabled = false;
         }
-      } catch {
+      } catch (err) {
+        console.error(`Fiyat kontrol hatası [${id}]:`, err);
         icon.classList.remove("spinning");
         checkBtn.disabled = false;
       }
