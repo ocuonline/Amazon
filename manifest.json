@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AFT - Anlık Fiyat Takip Eklentisi",
   "description": "Amazon ve Hepsiburada ürünlerini takip edin ve fiyat düştüğünde uyarı alın.",
-  "version": "1.87",
+  "version": "1.90",
   "permissions": ["notifications", "activeTab", "offscreen", "storage", "alarms", "scripting", "tabs"],
   "host_permissions": ["*://*.amazon.com.tr/*", "*://*.hepsiburada.com/*", "*://*.yaniyo.com/*", "*://aft.web.tr/*"],
   "background": {

@@ -1,6 +1,7 @@
 // background.js (bu açıklamayı silme)
 import {saveToDB, removeFromDB, fixProductData} from "./storage.js";
 import {checkPrices} from "./update.js";
+import {refreshToken} from "./sendUrl.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;
@@ -77,6 +78,9 @@ async function registerToken() {
     if (data.token) {
       await browser.storage.local.set({authToken: data.token});
     }
+    if (data.hmac_secret) {
+      await browser.storage.local.set({hmacSecret: data.hmac_secret});
+    }
   } catch (err) {
     console.error("Token alınamadı:", err);
   }
@@ -84,6 +88,7 @@ async function registerToken() {
 
 browser.runtime.onInstalled.addListener(async (details) => {
   await registerToken();
+  await refreshToken();
   const settings = (await browser.storage.sync.get("settings")).settings || getDefaultSettings();
   if (settings.priceCheckInterval !== "0") {
     initializeSettings();
@@ -96,6 +101,7 @@ browser.runtime.onInstalled.addListener(async (details) => {
 
 browser.runtime.onStartup.addListener(async () => {
   console.log("Tarayıcı yeniden başlatıldı.");
+  await refreshToken();
   const settings = (await browser.storage.sync.get("settings")).settings || getDefaultSettings();
   if (settings.priceCheckInterval !== "0") {
     initializeSettings();

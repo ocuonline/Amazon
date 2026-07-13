@@ -24,10 +24,12 @@ async function getPriceHistory(urunId, platform) {
           priceToSave = bestSeller?.price || parsedNow;
         }
 
+        const updateBody = new URLSearchParams({urun_id: urunId, fiyat: priceToSave, platform}).toString();
+        const authUpdate = await window.getAuthHeaders(updateBody);
         await fetch("https://aft.web.tr/extension/UpdatePrice.php", {
           method: "POST",
-          headers: {"Content-Type": "application/x-www-form-urlencoded", ...auth},
-          body: new URLSearchParams({urun_id: urunId, fiyat: priceToSave, platform}),
+          headers: {"Content-Type": "application/x-www-form-urlencoded", ...authUpdate},
+          body: updateBody,
         });
 
         const auth2 = await window.getAuthHeaders();

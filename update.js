@@ -23,38 +23,21 @@ export function cancelPriceCheck() {
   isCancelled = true;
 }
 
-const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
-
-async function fetchWithRetry(fn, retries = 3, delay = 10000) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      const isTransient = !err.status || TRANSIENT_STATUSES.has(err.status);
-      if (i === retries - 1 || !isTransient) throw err;
-      const wait = delay * Math.pow(2, i);
-      console.warn(`Fetch hata (deneme ${i + 1}/${retries}), ${wait}ms sonra tekrar: ${err.message}`);
-      await new Promise((resolve) => setTimeout(resolve, wait));
-    }
-  }
-}
-
 export async function checkPrices(productId = null, onProductChecked = null) {
   isCancelled = false;
   const checkId = ++activeCheckId;
   if (!productId) await browser.storage.local.set({checkedIds: []});
   const initialList = await getAllFromSync();
   const idsToCheck = productId ? [productId] : initialList.map((p) => p.id);
-  const productMap = new Map(initialList.map((p) => [p.id, p]));
 
   const {settings: s = {}} = await browser.storage.sync.get("settings");
   const concurrentLimit = Math.max(1, parseInt(s.concurrentLimit, 10) || 3);
   const fetchMode = s.fetchMode ?? "fetch";
 
   async function checkSingle(id, current, total) {
+    if (isCancelled) return;
     try {
-      if (isCancelled) return;
-      const product = productMap.get(id);
+      const product = await getAllFromSync(id);
       if (!product) {
         if (onProductChecked) onProductChecked(id);
         return;
@@ -73,13 +56,7 @@ export async function checkPrices(productId = null, onProductChecked = null) {
 
       let updateResult;
       if (isCancelled) return;
-      try {
-        updateResult = await fetchWithRetry(() => updateProductPrice(product, fetchMode));
-      } catch (fetchErr) {
-        console.warn(`fetchWithRetry başarısız [${product.id}]:`, fetchErr.message);
-        updateResult = {newPrice: product.newPrice, outOfStock: product.outOfStock};
-      }
-      const {newPrice: updatedPrice, outOfStock = undefined, deleted} = updateResult;
+      const {newPrice: updatedPrice, outOfStock = undefined, deleted} = await updateProductPrice(product, fetchMode);
 
       if (deleted) {
         console.log(`Ürün silinmiş -> ${product.id}`);
@@ -188,7 +165,6 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       try {
         if (checkId === activeCheckId) {
           await queueWrite(() => saveToSync([product]));
-          productMap.set(id, product);
         }
       } catch (e) {
         console.error("saveToSync hatası", e);

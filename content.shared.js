@@ -64,11 +64,12 @@ async function saveToMysql(id, price, url, name, platform, barcode = null) {
     data.append("productName", name);
     data.append("platform", platform);
     if (barcode) data.append("barcode", barcode);
-    const auth = await window.getAuthHeaders();
+    const bodyStr = data.toString();
+    const auth = await window.getAuthHeaders(bodyStr);
     const res = await fetch("https://aft.web.tr/extension/SavePrice.php", {
       method: "POST",
       headers: {"Content-Type": "application/x-www-form-urlencoded", ...auth},
-      body: data,
+      body: bodyStr,
     });
     if (!res.ok) throw new Error("Veri gönderme sırasında hata oluştu.");
   } catch (error) {
@@ -89,7 +90,7 @@ function insertCheaperSellerBox(bestSeller) {
   const box = document.createElement("div");
   box.className = "cheaper-seller-box";
 
-  const text = document.createTextNode(`💰 Bu ürünü `);
+  const text = document.createTextNode(`Bu ürünü `);
   const strong = document.createElement("strong");
   strong.textContent = `${bestSeller.price.toLocaleString("tr-TR")} TL`;
   const mid = document.createTextNode(` fiyatına satan farklı bir satıcı var. `);
