@@ -2,8 +2,7 @@
 import {getAllFromSync, saveToSync, clearAllStorage, getAllFromDB, saveToDB} from "./storage.js";
 import {renderProductList, sortByOrder, updateProductRow, calcPercent} from "./popup.table.js";
 import {checkPrices, cancelPriceCheck} from "./update.js";
-import {parseDate} from "./utils.js";
-import {showToast} from "./notifications.js";
+import {parseDate, showToast} from "./utils.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;

@@ -19,7 +19,6 @@ async function getPriceHistory(urunId, platform) {
         let priceToSave = parsedNow;
 
         if (platform === "amazon") {
-          console.log("[AFT] lastDbPrice:", lastDbPrice, "| parsedNow:", parsedNow, "| eşit mi:", lastDbPrice === parsedNow);
           const bestSeller = await window.findBestSeller?.(urunId);
           priceToSave = bestSeller?.price || parsedNow;
         }
@@ -308,11 +307,12 @@ function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true
   if ((!entries || entries.length === 0) && yanyoEntries.length === 0) return;
   entries = entries || [];
 
-  const aftLabels = toggleState.aft ? entries.map((e) => new Date(e.tarih).toLocaleDateString("tr-TR")) : [];
-  const yanyoLabels = toggleState.yanyo && yanyoEntries.length > 0 ? yanyoEntries.map((e) => new Date(e.tarih).toLocaleDateString("tr-TR")) : [];
+  const aftTimestamps = toggleState.aft ? entries.map((e) => new Date(e.tarih).getTime()) : [];
+  const yanyoTimestamps = toggleState.yanyo && yanyoEntries.length > 0 ? yanyoEntries.map((e) => new Date(e.tarih).getTime()) : [];
 
-  const allLabels = [...new Set([...aftLabels, ...yanyoLabels])].sort(
-    (a, b) => new Date(a.split(".").reverse().join("-")) - new Date(b.split(".").reverse().join("-")),
+  const allTimestamps = [...new Set([...aftTimestamps, ...yanyoTimestamps])].sort((a, b) => a - b);
+  const allLabels = allTimestamps.map((ts) =>
+    new Date(ts).toLocaleString("tr-TR", {day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"}),
   );
 
   const aftPoints = toggleState.aft ? entries.map((e) => parseFloat(e.fiyat)) : [];
@@ -332,9 +332,9 @@ function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true
         return params
           .map((param) => {
             const i = param.dataIndex;
-            const label = allLabels[i];
+            const ts = allTimestamps[i];
             const sourceEntries = param.seriesName === "Yaniyo" ? yanyoEntries : entries;
-            const e = sourceEntries.findLast((e) => new Date(e.tarih).toLocaleDateString("tr-TR") === label);
+            const e = sourceEntries.find((e) => new Date(e.tarih).getTime() === ts);
             if (!e) return "";
 
             const idx = sourceEntries.indexOf(e);
@@ -372,8 +372,8 @@ function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true
       {
         name: "AFT",
         data: toggleState.aft
-          ? allLabels.map((l) => {
-              const e = entries.findLast((e) => new Date(e.tarih).toLocaleDateString("tr-TR") === l);
+          ? allTimestamps.map((ts) => {
+              const e = entries.find((e) => new Date(e.tarih).getTime() === ts);
               return e ? parseFloat(e.fiyat) : null;
             })
           : [],
@@ -398,8 +398,8 @@ function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true
           symbol: "pin",
           symbolSize: 21,
           data: [
-            {type: "max", itemStyle: {color: "#ff0000"}, label: {formatter: "₺{c}", color: "#ff0000", position: "bottom", fontWeight: "bold"}},
-            {type: "min", itemStyle: {color: "#ff0000"}, label: {formatter: "₺{c}", color: "#ff0000", position: "top", fontWeight: "bold"}},
+            {type: "max", itemStyle: {color: "#ff0000"}, label: {show: false}},
+            {type: "min", itemStyle: {color: "#ff0000"}, label: {show: false}},
           ],
         },
       },
@@ -407,8 +407,8 @@ function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true
         name: "Yaniyo",
         data:
           toggleState.yanyo && yanyoEntries.length > 0
-            ? allLabels.map((l) => {
-                const e = yanyoEntries.find((e) => new Date(e.tarih).toLocaleDateString("tr-TR") === l);
+            ? allTimestamps.map((ts) => {
+                const e = yanyoEntries.find((e) => new Date(e.tarih).getTime() === ts);
                 return e ? parseFloat(e.fiyat) : null;
               })
             : [],
@@ -429,53 +429,40 @@ function updateChart(chart, entries, yanyoEntries = [], toggleState = {aft: true
             ],
           },
         },
+        markPoint: {
+          symbol: "pin",
+          symbolSize: 21,
+          data: [
+            {type: "max", itemStyle: {color: "#ff0000"}, label: {show: false}},
+            {type: "min", itemStyle: {color: "#ff0000"}, label: {show: false}},
+          ],
+        },
       },
     ],
   });
 }
 
 async function fetchYanyoData(asin) {
-  const PRICE_HISTORY_ARRAY_KEY = "dfwqsZwgh";
-  const PRICE_KEY = "dfwqs";
-  const DATE_KEY = "rohs";
-
   try {
-    const response = await fetch(`https://apiv2.yaniyo.com/api/product/id/${asin}`);
-    if (!response.ok) return [];
-
-    const rawText = await response.text();
-    const regex = new RegExp(`"${PRICE_HISTORY_ARRAY_KEY}"\\s*:\\s*(\\[[\\s\\S]*\\])`, "i");
-    const match = rawText.match(regex);
+    const html = await new Promise((resolve) => {
+      browser.runtime.sendMessage({action: "fetchYanyoPage", asin}, (response) => {
+        resolve(response?.html ?? null);
+      });
+    });
+    if (!html) return [];
+    const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
     if (!match?.[1]) return [];
 
-    const arrayText = rawText.slice(rawText.indexOf(`"${PRICE_HISTORY_ARRAY_KEY}"`));
-    const start = arrayText.indexOf("[");
-    let depth = 0,
-      end = -1;
-    for (let i = start; i < arrayText.length; i++) {
-      if (arrayText[i] === "[" || arrayText[i] === "{") depth++;
-      else if (arrayText[i] === "]" || arrayText[i] === "}") {
-        depth--;
-        if (depth === 0) {
-          end = i;
-          break;
-        }
-      }
-    }
-    if (start === -1 || end === -1) return [];
-    const obfuscatedArray = JSON.parse(arrayText.slice(start, end + 1));
-    if (!Array.isArray(obfuscatedArray)) return [];
+    const json = JSON.parse(match[1]);
+    const priceList = json?.props?.pageProps?.data?.priceList;
+    if (!Array.isArray(priceList) || priceList.length === 0) return [];
 
-    return obfuscatedArray
+    return priceList
       .map((item) => {
-        let date = item[DATE_KEY];
-        const price = item[PRICE_KEY];
-        if (price === null || date === null || typeof date !== "string" || isNaN(parseFloat(price))) return null;
-        if (date.endsWith("N")) date = date.slice(0, -1) + "Z";
-        if (date.charAt(10) === "H") date = date.slice(0, 10) + "T" + date.slice(11);
-        const dateObj = new Date(date);
-        if (isNaN(dateObj.getTime())) return null;
-        return {tarih: dateObj.toISOString(), fiyat: parseFloat(price).toFixed(2)};
+        const price = parseFloat(item.price);
+        const dateObj = new Date(item.date);
+        if (!Number.isFinite(price) || isNaN(dateObj.getTime())) return null;
+        return {tarih: dateObj.toISOString(), fiyat: price.toFixed(2)};
       })
       .filter(Boolean);
   } catch (err) {

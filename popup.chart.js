@@ -1,4 +1,5 @@
 //popup.chart.js (bu açıklamayı silme)
+import {getAuthHeaders} from "./src/auth2.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;
@@ -9,54 +10,25 @@ const CONFIG = {
   PERIODS: {"1yıl": 12, "6ay": 6, "3ay": 3, "1ay": 1},
 };
 
-async function hmacSign(secret, message) {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", enc.encode(secret), {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function getAuthHeaders(body = "") {
-  const extensionId = browser.runtime.id;
-  const result = await browser.storage.local.get(["authToken", "hmacSecret"]);
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const signature = await hmacSign(result.hmacSecret || "", timestamp + "." + body);
-  return {
-    "X-Token": result.authToken || "",
-    "X-Extension-Id": extensionId,
-    "X-Timestamp": timestamp,
-    "X-Signature": signature,
-  };
-}
-
 async function fetchYanyoData(asin) {
-  const PRICE_HISTORY_ARRAY_KEY = "dfwqsZwgh";
-  const PRICE_KEY = "dfwqs";
-  const DATE_KEY = "rohs";
-
   try {
-    const response = await fetch(`https://apiv2.yaniyo.com/api/product/id/${asin}`);
+    const response = await fetch(`https://yaniyo.com/dp/${asin}`);
     if (!response.ok) return [];
-    const rawText = await response.text();
-    const regex = new RegExp(`"${PRICE_HISTORY_ARRAY_KEY}"\\s*:\\s*(\\[[\\s\\S]*?\\])`, "i");
-    const match = rawText.match(regex);
+
+    const html = await response.text();
+    const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
     if (!match?.[1]) return [];
 
-    const obfuscatedArray = JSON.parse(match[1]);
-    if (!Array.isArray(obfuscatedArray)) return [];
+    const json = JSON.parse(match[1]);
+    const priceList = json?.props?.pageProps?.data?.priceList;
+    if (!Array.isArray(priceList) || priceList.length === 0) return [];
 
-    return obfuscatedArray
+    return priceList
       .map((item) => {
-        let date = item[DATE_KEY];
-        const price = item[PRICE_KEY];
-        if (price === null || date === null || typeof date !== "string" || isNaN(parseFloat(price))) return null;
-        if (date.endsWith("N")) date = date.slice(0, -1) + "Z";
-        if (date.charAt(10) === "H") date = date.slice(0, 10) + "T" + date.slice(11);
-        const dateObj = new Date(date);
-        if (isNaN(dateObj.getTime())) return null;
-        return {tarih: dateObj.toISOString(), fiyat: parseFloat(price).toFixed(2)};
+        const price = parseFloat(item.price);
+        const dateObj = new Date(item.date);
+        if (!Number.isFinite(price) || isNaN(dateObj.getTime())) return null;
+        return {tarih: dateObj.toISOString(), fiyat: price.toFixed(2)};
       })
       .filter(Boolean);
   } catch {
@@ -66,24 +38,37 @@ async function fetchYanyoData(asin) {
 
 export async function fetchProductData(urun_id) {
   const platform = urun_id.startsWith("HB") ? "hb" : "amazon";
+  console.log("[fetchProductData] başladı:", urun_id, "platform:", platform);
   try {
     const auth = await getAuthHeaders();
+    console.log("[fetchProductData] auth headers:", auth);
     const res = await fetch(`https://aft.web.tr/extension/GetPrice.php?urun_id=${urun_id}&platform=${platform}`, {
       headers: auth,
     });
+    console.log("[fetchProductData] response status:", res.status, res.ok);
     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-    return await res.json();
+    const json = await res.json();
+    console.log("[fetchProductData] dönen veri:", json);
+    return json;
   } catch (err) {
-    console.log("Veri alınırken hata:", err.message);
+    console.error("[fetchProductData] HATA:", err.message);
     return null;
   }
 }
 
 export async function renderChart(urun_id, data, realProductId = urun_id) {
-  const container = document.getElementById(urun_id)?.parentNode;
-  if (!container) return;
+  console.log("[renderChart] başladı, urun_id:", urun_id, "realProductId:", realProductId);
+  const el = document.getElementById(urun_id);
+  console.log("[renderChart] element bulundu mu:", el);
+  const container = el?.parentNode;
+  console.log("[renderChart] container:", container);
+  if (!container) {
+    console.error("[renderChart] container bulunamadı, çıkılıyor.");
+    return;
+  }
 
   data = Array.isArray(data) ? data : [];
+  console.log("[renderChart] data uzunluğu:", data.length, "ilk 3 kayıt:", data.slice(0, 3));
 
   const isAmazon = !realProductId.startsWith("HB");
   const yanyoRaw = !realProductId.startsWith("HB") ? await fetchYanyoData(realProductId) : [];
@@ -142,25 +127,16 @@ export async function renderChart(urun_id, data, realProductId = urun_id) {
 }
 
 function aggregateData(data, ay) {
-  const result = [];
-  const map = {};
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth() - ay, now.getDate());
 
-  data.forEach(({tarih, fiyat}) => {
-    const d = new Date(tarih);
-    if (isNaN(d) || d < start) return;
-    const key = d.toISOString().split("T")[0];
-    if (!map[key]) map[key] = [];
-    map[key].push(parseFloat(fiyat));
-  });
-
-  for (const key in map) {
-    const ort = Math.round(map[key].reduce((a, b) => a + b, 0) / map[key].length);
-    result.push({date: key, fiyat: ort});
-  }
-
-  return result.sort((a, b) => new Date(a.date) - new Date(b.date));
+  return data
+    .filter(({tarih}) => {
+      const d = new Date(tarih);
+      return !isNaN(d) && d >= start;
+    })
+    .map(({tarih, fiyat}) => ({date: tarih, fiyat: parseFloat(fiyat)}))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
 function createHeader(container, defaultKey, showToggle = false) {
@@ -300,8 +276,8 @@ function getChartOption(data, yanyoData = [], toggleState = {aft: true, yanyo: t
           symbol: "pin",
           symbolSize: 16,
           data: [
-            {type: "max", itemStyle: {color: "#ff0000"}, label: {show: true, formatter: "₺{c}", color: "#ff0000", position: "left", fontWeight: "bold"}},
-            {type: "min", itemStyle: {color: "#eeff00"}, label: {show: true, formatter: "₺{c}", color: "#eeff00", position: "left", fontWeight: "bold"}},
+            {type: "max", itemStyle: {color: "#ff0000"}, label: {show: false}},
+            {type: "min", itemStyle: {color: "#ff0000"}, label: {show: false}},
           ],
         },
       },
@@ -324,6 +300,14 @@ function getChartOption(data, yanyoData = [], toggleState = {aft: true, yanyo: t
               {offset: 1, color: "rgba(247,166,69,0.05)"},
             ],
           },
+        },
+        markPoint: {
+          symbol: "pin",
+          symbolSize: 16,
+          data: [
+            {type: "max", itemStyle: {color: "#ff0000"}, label: {show: false}},
+            {type: "min", itemStyle: {color: "#ff0000"}, label: {show: false}},
+          ],
         },
       },
     ],

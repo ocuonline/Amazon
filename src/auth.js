@@ -11,13 +11,15 @@ async function hmacSign(secret, message) {
 
 async function getAuthHeaders(body = "") {
   const extensionId = browser.runtime.id;
-  const result = await browser.storage.local.get(["authToken", "hmacSecret"]);
+  const result = await browser.storage.local.get(["authToken", "hmacSecret", "clientId", "fingerprint"]);
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const signature = await hmacSign(result.hmacSecret || "", timestamp + "." + body);
 
   return {
     "X-Token": result.authToken || "",
     "X-Extension-Id": extensionId,
+    "X-Client-Id": result.clientId || "",
+    "X-Fingerprint": result.fingerprint || "",
     "X-Timestamp": timestamp,
     "X-Signature": signature,
   };

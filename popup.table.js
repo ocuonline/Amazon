@@ -1,8 +1,7 @@
 // popup > table.js
 import {getAllFromSync, saveToSync, removeFromSync, getAllFromDB, saveToDB} from "./storage.js";
+import {showToast, formatDate, getTimeAgo, formatTL} from "./utils.js";
 import {fetchProductData, renderChart} from "./popup.chart.js";
-import {formatDate, getTimeAgo, formatTL} from "./utils.js";
-import {showToast} from "./notifications.js";
 import {checkPrices} from "./update.js";
 
 if (typeof browser === "undefined") {

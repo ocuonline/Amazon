@@ -1,6 +1,6 @@
 // options.js (bu açıklamayı silme)
 import {getAllFromDB, getAllFromSync, saveToSync, STORAGE_CONFIG, clearAllStorage, fixProductData} from "./storage.js";
-import {showToast} from "./notifications.js";
+import {showToast} from "./utils.js";
 
 if (typeof browser === "undefined") {
   var browser = chrome;

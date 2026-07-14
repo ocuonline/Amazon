@@ -41,3 +41,19 @@ export function parseDate(d) {
   const [day, month, year] = datePart.split(".");
   return new Date(`${year}-${month}-${day}${timePart ? "T" + timePart : ""}`).getTime();
 }
+
+export function showToast(message, type) {
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.innerText = message;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add("visible");
+  }, 100);
+  setTimeout(() => {
+    toast.classList.remove("visible");
+    setTimeout(() => {
+      document.body.removeChild(toast);
+    }, 500);
+  }, 3000);
+}
