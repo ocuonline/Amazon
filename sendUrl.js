@@ -1,6 +1,8 @@
 //background > sendUrl.js
 import {getAuthHeaders, hmacSign} from "./src/auth2.js";
 
+const browser = globalThis.browser ?? globalThis.chrome;
+
 export async function registerToken() {
   try {
     const extensionId = browser.runtime.id;

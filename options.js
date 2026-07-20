@@ -2,9 +2,7 @@
 import {getAllFromDB, getAllFromSync, saveToSync, STORAGE_CONFIG, clearAllStorage, fixProductData} from "./storage.js";
 import {showToast} from "./utils.js";
 
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 const settings = [
   "priceCheckInterval",

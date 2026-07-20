@@ -1,7 +1,5 @@
 //utils.js
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 export async function LastUpdateTime() {
   const formattedDate = formatDate(Date.now());

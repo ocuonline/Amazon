@@ -6,9 +6,7 @@ import {fetchProductHB, domProductHB} from "./price.hb.js";
 import {getAllFromSync, saveToSync} from "./storage.js";
 import {sendNotification} from "./notifications.js";
 
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 let isCancelled = false;
 let activeCheckId = 0;
@@ -67,7 +65,7 @@ export async function checkPrices(productId = null, onProductChecked = null) {
         const idx = updatedList.findIndex((p) => p.id === id);
         if (idx >= 0) {
           const localEntry = (await browser.storage.local.get(id))[id] || {};
-          await browser.storage.local.set({[id]: {...localEntry, deleted: true}});
+          await browser.storage.local.set({[id]: {oldPrice: localEntry.oldPrice, deleted: true}});
         }
         if (onProductChecked) onProductChecked(id);
         return;
@@ -79,6 +77,13 @@ export async function checkPrices(productId = null, onProductChecked = null) {
         const data = (await browser.storage.local.get(product.id))[product.id] || {};
         await browser.storage.local.set({[product.id]: {...data, oldPrice: prevPrice}});
       }
+      if (newPrice > 0) {
+        const data = (await browser.storage.local.get(product.id))[product.id] || {};
+        if (data.deleted) {
+          delete data.deleted;
+          await browser.storage.local.set({[product.id]: data});
+        }
+      }
       product.newPrice = updatedPrice;
       if (outOfStock !== undefined && outOfStock !== null) product.outOfStock = outOfStock;
       let priceChanged = false;
@@ -86,10 +91,7 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       if (product.outOfStock) {
         const stockOutData = (await browser.storage.local.get(product.id))[product.id] || {};
         if (!stockOutData.stockOutDate) {
-          stockOutData.stockOutDate = Date.now();
-          delete stockOutData.stockIn;
-          delete stockOutData.stockInDate;
-          await browser.storage.local.set({[product.id]: stockOutData});
+          await browser.storage.local.set({[product.id]: {oldPrice: stockOutData.oldPrice, stockOutDate: Date.now()}});
         }
       }
 
@@ -169,7 +171,7 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       }
 
       if (priceChanged) {
-        updateBadgeCount([{...product, prevPrice, outOfStock: product.outOfStock, _prevOutOfStock: prevOutOfStock}]);
+        await queueWrite(() => updateBadgeCount([{...product, prevPrice, outOfStock: product.outOfStock, _prevOutOfStock: prevOutOfStock}]));
         const {badgeProducts = []} = await browser.storage.local.get("badgeProducts");
         if (!badgeProducts.includes(product.id)) {
           badgeProducts.push(product.id);

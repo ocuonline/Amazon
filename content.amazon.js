@@ -1,9 +1,7 @@
 // content.amazon.js
 const {saveToSync, removeFromSync} = window.storage.sync;
 
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 async function saveToDB(order) {
   return new Promise((resolve) => {
@@ -47,7 +45,7 @@ function getPrice() {
   const raw = document.getElementById("items[0.base][customerVisiblePrice][amount]")?.value ?? null;
   if (!raw) return null;
   const num = parseFloat(raw);
-  return isNaN(num) ? null : num;
+  return isNaN(num) ? null : Math.round(num * 100) / 100;
 }
 
 function getASIN() {

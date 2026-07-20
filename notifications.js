@@ -2,9 +2,7 @@
 import {getAllFromSync} from "./storage.js";
 import {formatTL} from "./utils.js";
 
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 export async function sendNotification(product, oldPrice, newPrice, type) {
   const {settings = {}} = await browser.storage.sync.get("settings");

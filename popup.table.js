@@ -4,9 +4,7 @@ import {showToast, formatDate, getTimeAgo, formatTL} from "./utils.js";
 import {fetchProductData, renderChart} from "./popup.chart.js";
 import {checkPrices} from "./update.js";
 
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 function addBadge(container, className, text, title = "", insertAfter = null) {
   const badge = document.createElement("span");

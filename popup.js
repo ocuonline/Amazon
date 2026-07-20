@@ -4,9 +4,7 @@ import {renderProductList, sortByOrder, updateProductRow, calcPercent} from "./p
 import {checkPrices, cancelPriceCheck} from "./update.js";
 import {parseDate, showToast} from "./utils.js";
 
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 let groupIndex = 0;
 let activeFilter = null;
@@ -26,6 +24,10 @@ async function applyFilter(products, {localData, percentMode, oldPriceMap} = {})
     return products.filter((p) => resolved[p.id]?.stockIn);
   }
   if (activeFilter === "stock-out") return products.filter((p) => p.outOfStock === true);
+  if (activeFilter === "deleted") {
+    const resolved = localData ?? (await browser.storage.local.get(products.map((p) => p.id)));
+    return products.filter((p) => resolved[p.id]?.deleted);
+  }
   if (activeFilter === "target") {
     return products.filter((p) => {
       const target = p.targetPrice ?? 0;
@@ -368,18 +370,24 @@ document.addEventListener("DOMContentLoaded", () => {
     const filterBtn = document.getElementById("filter-btn");
 
     const textMap = {
-      all: "☰",
       discount: "⬇️",
       increase: "⬆️",
       target: "🎯",
       "stock-in": "➕",
       "stock-out": "⛔",
+      deleted: "🗑️",
       "🔴": "🔴",
       "🟡": "🟡",
       "🟢": "🟢",
     };
 
     filterBtn.textContent = textMap[filter] ?? "";
+    if (!textMap[filter]) {
+      const icon = document.createElement("span");
+      icon.className = "material-icons";
+      icon.textContent = "filter_list";
+      filterBtn.appendChild(icon);
+    }
   }
 
   async function setupFilterMenu() {

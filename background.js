@@ -3,9 +3,7 @@ import {saveToDB, removeFromDB, fixProductData} from "./storage.js";
 import {refreshToken, registerToken} from "./sendUrl.js";
 import {checkPrices} from "./update.js";
 
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "clearBadge") {

@@ -1,4 +1,5 @@
 //content.shared.js
+const browser = globalThis.browser ?? globalThis.chrome;
 
 function buildFollowEntry(product, extras = {}) {
   const {id, name, url, firstPrice} = product;

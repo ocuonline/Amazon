@@ -1,9 +1,7 @@
 // content.sepet.js
 const {saveToSync, removeFromSync} = window.storage.sync;
 
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 async function saveToDB(order) {
   return new Promise((resolve) => {

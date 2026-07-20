@@ -1,8 +1,6 @@
 //storage.js
 
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 export const STORAGE_CONFIG = {MAX_ITEMS: 100};
 const PRODUCT_KEY_REGEX = /^[A-Z0-9]{10}$|^HB[A-Z0-9]{10,13}$/;

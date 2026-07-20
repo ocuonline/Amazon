@@ -1,7 +1,5 @@
 // background > price.amazon.js (bu açıklamayı silme)
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 export async function fetchProductAmazon(url) {
   async function fetchHtml(targetUrl) {
@@ -26,15 +24,13 @@ export async function fetchProductAmazon(url) {
     }
   }
 
-  const isProductUrl = url.includes("/dp/") || url.includes("/gp/product/");
   let {html, deleted} = await fetchHtml(url);
   if (html === null) {
-    if (deleted && !isProductUrl) return {price: null, stockCount: null, promoText: null, outOfStock: false, deleted: true};
-    if (deleted && isProductUrl) return {price: null, stockCount: null, promoText: null, outOfStock: true, deleted: false};
+    if (deleted) return {price: null, stockCount: null, promoText: null, outOfStock: false, deleted: true};
     return {price: null, stockCount: null, promoText: null, outOfStock: null, deleted: false};
   }
 
-  if (html && (html.includes("black-curtain-yes-button") || html.includes('action="/errors/validateCaptcha"'))) {
+  if (html && (html.includes("black-curtain-yes-button") || /action="\/errors.*\/validateCaptcha"/.test(html))) {
     const yesHref = html.match(/id="black-curtain-yes-button"[\s\S]*?href="([^"]+)"/)?.[1];
     if (yesHref) {
       const yesUrl = yesHref.startsWith("http") ? yesHref : `https://www.amazon.com.tr${yesHref}`;
@@ -52,10 +48,11 @@ export async function fetchProductAmazon(url) {
       const amzn = html.match(/name="amzn"\s+value="([^"]+)"/)?.[1];
       const amznR = html.match(/name="amzn-r"\s+value="([^"]+)"/)?.[1];
       const keywords = html.match(/name="field-keywords"\s+value="([^"]+)"/)?.[1];
+      const formAction = html.match(/action="(\/errors[^"]*validateCaptcha[^"]*)"/)?.[1] ?? "/errors/validateCaptcha";
       if (amzn && amznR) {
         const params = new URLSearchParams({amzn, "amzn-r": amznR});
         if (keywords) params.set("field-keywords", keywords);
-        const bypassUrl = `https://www.amazon.com.tr/errors/validateCaptcha?${params.toString()}`;
+        const bypassUrl = `https://www.amazon.com.tr${formAction}?${params.toString()}`;
         console.log("[captcha] bypass url:", bypassUrl);
         let result;
         try {
@@ -76,7 +73,7 @@ export async function fetchProductAmazon(url) {
   const rawAmount =
     html.match(/<input[^>]+id="items\[0\.base\]\[customerVisiblePrice\]\[amount\]"[^>]+value="([^"]+)"/)?.[1] ??
     html.match(/<input[^>]+value="([^"]+)"[^>]+id="items\[0\.base\]\[customerVisiblePrice\]\[amount\]"/)?.[1];
-  price = rawAmount ? +rawAmount : null;
+  price = rawAmount ? Math.round(+rawAmount * 100) / 100 : null;
 
   // Stok adedi
   const stockMatch = html.match(/<span[^>]*class=["'][^"']*primary-availability-message[^"']*["'][^>]*>\s*Stokta sadece\s+(\d+)\s+adet kaldı\.\s*<\/span>/i);
@@ -123,7 +120,6 @@ export async function fetchProductAmazon(url) {
         .replace(/Kaydol\s*/gi, "")
         .replace(/Kayıtlı\s*/gi, "")
         .replace(/Daha fazla bilgi alın\s*/gi, "")
-        .replace(/(.{20,}?)\s+\1/g, "$1")
         .trim() || null;
   }
 
@@ -152,7 +148,8 @@ export async function fetchProductAmazon(url) {
         .trim()
     : null;
 
-  const outOfStock = !isProductUrl ? null : !price || price <= 0;
+  const isProductPage = html.includes('id="ASIN"');
+  const outOfStock = !isProductPage ? null : !price || price <= 0;
   return {price, stockCount, promoText, installment: installment || null, condition, outOfStock};
 }
 
@@ -180,34 +177,33 @@ export async function domProductAmazon(url) {
     }
 
     activeTimeout = setTimeout(() => {
-      settleWith({price: null, stockCount: null, promoText: null, outOfStock: true});
+      settleWith({price: null, stockCount: null, promoText: null, outOfStock: null});
     }, 15000);
 
     function listener(id, info) {
       if (settled || id !== tabId || info.status !== "complete") return;
 
-      browser.scripting
-        .executeScript({
-          target: {tabId},
-          func: () => {
-            const hasBlackCurtain = !!document.querySelector("#black-curtain-yes-button");
-            const hasCaptchaForm = !!document.querySelector('form[action="/errors/validateCaptcha"]');
-            return {hasBlackCurtain, hasCaptchaForm};
-          },
-        })
-        .then(async (results) => {
+      const runScript = async (attempt = 1) => {
+        try {
+          const checkResults = await browser.scripting.executeScript({
+            target: {tabId},
+            func: () => {
+              const hasBlackCurtain = !!document.querySelector("#black-curtain-yes-button");
+              const hasCaptchaForm = !!document.querySelector('form[action*="/errors"][action*="validateCaptcha"]');
+              return {hasBlackCurtain, hasCaptchaForm};
+            },
+          });
+
           if (settled) return;
-          const {hasBlackCurtain, hasCaptchaForm} = results?.[0]?.result ?? {};
+          const {hasBlackCurtain, hasCaptchaForm} = checkResults?.[0]?.result ?? {};
 
           if (hasBlackCurtain || hasCaptchaForm) {
-            if (!settled) {
-              clearTimeout(activeTimeout);
-              activeTimeout = setTimeout(() => {
-                settleWith({price: null, stockCount: null, promoText: null, outOfStock: true});
-              }, 15000);
-            }
+            clearTimeout(activeTimeout);
+            activeTimeout = setTimeout(() => {
+              settleWith({price: null, stockCount: null, promoText: null, outOfStock: true});
+            }, 15000);
 
-            browser.scripting.executeScript({
+            await browser.scripting.executeScript({
               target: {tabId},
               func: () => {
                 const yesBtn = document.querySelector("#black-curtain-yes-button a");
@@ -215,94 +211,87 @@ export async function domProductAmazon(url) {
                   yesBtn.click();
                   return;
                 }
-                const captchaBtn = document.querySelector('form[action="/errors/validateCaptcha"] button[type="submit"]');
+                const captchaBtn = document.querySelector('form[action*="/errors"][action*="validateCaptcha"] button[type="submit"]');
                 if (captchaBtn) captchaBtn.click();
               },
             });
             return;
           }
 
-          const isProductUrl = url.includes("/dp/") || url.includes("/gp/product/");
-          if (!isProductUrl) {
+          const is404 = await browser.scripting.executeScript({
+            target: {tabId},
+            func: () => document.body?.innerText?.includes("Aradığınız bir şey mi var?") ?? false,
+          });
+          if (is404?.[0]?.result) {
             settleWith({price: null, stockCount: null, promoText: null, outOfStock: false, deleted: true});
             return;
           }
 
-          if (settled) return;
-          let asinCheck;
-          try {
-            asinCheck = await browser.scripting.executeScript({
-              target: {tabId},
-              func: () => !!document.querySelector("#ASIN"),
-            });
-          } catch (err) {
-            console.error("domProductAmazon: asinCheck hatası", err);
-            settleWith({price: null, stockCount: null, promoText: null, outOfStock: null, deleted: false});
-            return;
-          }
-          if (!asinCheck?.[0]?.result) {
+          const hasAsin = await browser.scripting.executeScript({
+            target: {tabId},
+            func: () => !!document.querySelector("#ASIN"),
+          });
+          if (!hasAsin?.[0]?.result) {
             settleWith({price: null, stockCount: null, promoText: null, outOfStock: null, deleted: false});
             return;
           }
 
           if (settled) return;
-          browser.scripting
-            .executeScript({
-              target: {tabId},
-              func: () => {
-                const priceInput = document.getElementById("items[0.base][customerVisiblePrice][amount]");
-                const rawAmount = priceInput?.value ?? null;
-                const stockEl = document.querySelector(".primary-availability-message");
-                const stockMatch = stockEl?.textContent?.match(/Stokta sadece\s+(\d+)\s+adet/i);
-                const stockCount = stockMatch ? parseInt(stockMatch[1], 10) : null;
-                const promoEl = document.querySelector("#promoPriceBlockMessage_feature_div");
-                const promoText = promoEl
-                  ? promoEl.innerText
-                      .replace(/\s+/g, " ")
-                      .replace(/<script[\s\S]*?<\/script>/gi, "")
-                      .replace(/<style[\s\S]*?<\/style>/gi, "")
-                      .replace(/12 aya varan taksit[\s\S]*/i, "")
-                      .replace(/Taksitler[\s\S]*/i, "")
-                      .replace(/\{[\s\S]*\}/g, "")
-                      .replace(/Kaydol\s*/gi, "")
-                      .replace(/Kayıtlı\s*/gi, "")
-                      .replace(/Daha fazla bilgi alın\s*/gi, "")
-                      .replace(/(.{20,}?)\s+\1/g, "$1")
-                      .trim() || null
-                  : null;
-                let installment = 0;
-                document.querySelectorAll('[id$="-table-container"]').forEach((el) => {
-                  el.querySelectorAll("tr").forEach((row) => {
-                    const cells = row.querySelectorAll("td");
-                    if (cells.length < 3) return;
-                    const vadeFarki = cells[2].textContent.trim().toLowerCase();
-                    if (vadeFarki.includes("ücretsiz")) {
-                      const taksit = parseInt(cells[0].textContent.trim());
-                      if (taksit > installment) installment = taksit;
-                    }
-                  });
+          const priceResults = await browser.scripting.executeScript({
+            target: {tabId},
+            func: () => {
+              const priceInput = document.getElementById("items[0.base][customerVisiblePrice][amount]");
+              const rawAmount = priceInput?.value ?? null;
+              const stockEl = document.querySelector(".primary-availability-message");
+              const stockMatch = stockEl?.textContent?.match(/Stokta sadece\s+(\d+)\s+adet/i);
+              const stockCount = stockMatch ? parseInt(stockMatch[1], 10) : null;
+              const promoEl = document.querySelector("#promoPriceBlockMessage_feature_div");
+              const promoText = promoEl
+                ? promoEl.innerText
+                    .replace(/\s+/g, " ")
+                    .replace(/<script[\s\S]*?<\/script>/gi, "")
+                    .replace(/<style[\s\S]*?<\/style>/gi, "")
+                    .replace(/12 aya varan taksit[\s\S]*/i, "")
+                    .replace(/Taksitler[\s\S]*/i, "")
+                    .replace(/\{[\s\S]*\}/g, "")
+                    .replace(/Kaydol\s*/gi, "")
+                    .replace(/Kayıtlı\s*/gi, "")
+                    .replace(/Daha fazla bilgi alın\s*/gi, "")
+                    .trim() || null
+                : null;
+              let installment = 0;
+              document.querySelectorAll('[id$="-table-container"]').forEach((el) => {
+                el.querySelectorAll("tr").forEach((row) => {
+                  const cells = row.querySelectorAll("td");
+                  if (cells.length < 3) return;
+                  const vadeFarki = cells[2].textContent.trim().toLowerCase();
+                  if (vadeFarki.includes("ücretsiz")) {
+                    const taksit = parseInt(cells[0].textContent.trim());
+                    if (taksit > installment) installment = taksit;
+                  }
                 });
-                const conditionEl = document.querySelector("#usedOnlyLayoutCondition_feature_div .offer-display-feature-text-message");
-                const condition = conditionEl ? conditionEl.innerText.replace(/İkinci El\s*-\s*/i, "").trim() : null;
-                return {rawAmount, stockCount, promoText, installment: installment || null, condition};
-              },
-            })
-            .then((results) => {
-              const {rawAmount, stockCount, promoText, installment, condition} = results?.[0]?.result ?? {};
-              const price = rawAmount ? +rawAmount : null;
-              const parsedPrice = price ?? 0;
-              const outOfStock = parsedPrice <= 0;
-              settleWith({price, stockCount, promoText, installment, condition, outOfStock});
-            })
-            .catch((err) => {
-              console.error("domProductAmazon: executeScript hatası", err);
-              settleWith({price: null, stockCount: null, promoText: null, outOfStock: null});
-            });
-        })
-        .catch((err) => {
-          console.error("domProductAmazon: checkResult hatası", err);
-          settleWith({price: null, stockCount: null, promoText: null, outOfStock: true});
-        });
+              });
+              const conditionEl = document.querySelector("#usedOnlyLayoutCondition_feature_div .offer-display-feature-text-message");
+              const condition = conditionEl ? conditionEl.innerText.replace(/İkinci El\s*-\s*/i, "").trim() : null;
+              return {rawAmount, stockCount, promoText, installment: installment || null, condition};
+            },
+          });
+
+          const {rawAmount, stockCount, promoText, installment, condition} = priceResults?.[0]?.result ?? {};
+          const price = rawAmount ? Math.round(+rawAmount * 100) / 100 : null;
+          const outOfStock = (price ?? 0) <= 0;
+          settleWith({price, stockCount, promoText, installment, condition, outOfStock});
+        } catch (err) {
+          if (attempt < 2) {
+            setTimeout(() => runScript(attempt + 1), 3000);
+          } else {
+            console.error("domProductAmazon: runScript hatası", err);
+            settleWith({price: null, stockCount: null, promoText: null, outOfStock: true});
+          }
+        }
+      };
+
+      runScript();
     }
 
     browser.tabs.onUpdated.addListener(listener);

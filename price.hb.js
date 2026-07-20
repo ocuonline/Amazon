@@ -1,7 +1,5 @@
 // background > price.hb.js (bu açıklamayı silme)
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 export async function fetchProductHB(url) {
   function pickBestListing(listings) {
@@ -12,7 +10,7 @@ export async function fetchProductHB(url) {
       const value = listing.minimumPrices?.find((p) => p.name === "non-segmented-price")?.value ?? listing.price?.value;
       if (!value || !listing.merchantName) continue;
       if (value < bestPrice) {
-        bestPrice = value;
+        bestPrice = Math.round(value * 100) / 100;
         bestListing = listing;
       }
     }
@@ -201,7 +199,6 @@ export async function domProductHB(url) {
     function listener(id, info) {
       if (id !== tabId || info.status !== "complete") return;
       if (settled) return;
-      browser.tabs.onUpdated.removeListener(listener);
 
       browser.scripting
         .executeScript({
@@ -228,11 +225,16 @@ export async function domProductHB(url) {
             const pageHtml = document.documentElement.outerHTML;
             const productId = pageHtml.match(/"productId"\s*:\s*"([^"]+)"/)?.[1] ?? pageHtml.match(/HBC[A-Z0-9]+/)?.[0];
             const catsMatch = pageHtml.match(/"rootCategoryList"\s*:\s*(\[[\s\S]*?\])\s*(?:,|\})/);
-            const rootCategoryList = catsMatch?.[1]
-              ? JSON.parse(catsMatch[1])
+            let rootCategoryList = [];
+            try {
+              if (catsMatch?.[1]) {
+                rootCategoryList = JSON.parse(catsMatch[1])
                   .map((c) => Number(c.categoryId))
-                  .filter(Boolean)
-              : [];
+                  .filter(Boolean);
+              }
+            } catch (e) {
+              console.error("domProductHB: rootCategoryList ayrıştırma hatası", e.message);
+            }
             const brand = pageHtml.match(/"brand"\s*:\s*"([^"]+)"/)?.[1];
             const definitionName = pageHtml.match(/"definitionName"\s*:\s*"([^"]+)"/)?.[1];
             const definitionId = pageHtml.match(/"definitionId"\s*:\s*(\d+)/)?.[1];
@@ -246,7 +248,7 @@ export async function domProductHB(url) {
               const value = listing.minimumPrices?.find((p) => p.name === "non-segmented-price")?.value ?? listing.price?.value;
               if (!value || !listing.merchantName) continue;
               if (value < bestPrice) {
-                bestPrice = value;
+                bestPrice = Math.round(value * 100) / 100;
                 bestListing = listing;
               }
             }
@@ -310,7 +312,9 @@ export async function domProductHB(url) {
                 const allCampaigns = [...discountList, ...shippingList].map((c) => ({text: c.name}));
                 campaigns = allCampaigns.length ? allCampaigns : null;
               }
-            } catch (_) {}
+            } catch (err) {
+              console.warn("domProductHB: withoutAffordability hatası", err);
+            }
 
             return {
               outOfStock: false,

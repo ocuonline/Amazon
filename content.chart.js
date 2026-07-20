@@ -1,4 +1,6 @@
 //content.chart.js
+const browser = globalThis.browser ?? globalThis.chrome;
+
 async function getPriceHistory(urunId, platform) {
   try {
     const auth = await window.getAuthHeaders();
@@ -45,6 +47,7 @@ async function getPriceHistory(urunId, platform) {
     }
 
     const yanyoEntries = platform === "amazon" ? await fetchYanyoData(urunId) : [];
+    console.log("[Yanyo] yanyoEntries:", yanyoEntries.length);
     const hasYanyo = yanyoEntries.length >= 2;
 
     if (!rawEntries.length && !hasYanyo) {
@@ -450,17 +453,43 @@ async function fetchYanyoData(asin) {
       });
     });
     if (!html) return [];
+
     const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
     if (!match?.[1]) return [];
 
-    const json = JSON.parse(match[1]);
-    const priceList = json?.props?.pageProps?.data?.priceList;
-    if (!Array.isArray(priceList) || priceList.length === 0) return [];
+    const unescaped = match[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    const markerIdx = unescaped.indexOf('"dfwqs"');
+    if (markerIdx === -1) return [];
 
-    return priceList
+    const arrayStart = unescaped.lastIndexOf("[", markerIdx);
+    if (arrayStart === -1) return [];
+
+    let depth = 0,
+      arrayEnd = -1;
+    for (let i = arrayStart; i < unescaped.length; i++) {
+      if (unescaped[i] === "[") depth++;
+      else if (unescaped[i] === "]") {
+        depth--;
+        if (depth === 0) {
+          arrayEnd = i;
+          break;
+        }
+      }
+    }
+    if (arrayEnd === -1) return [];
+
+    let entries;
+    try {
+      entries = JSON.parse(unescaped.slice(arrayStart, arrayEnd + 1));
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(entries) || entries.length === 0) return [];
+
+    return entries
       .map((item) => {
-        const price = parseFloat(item.price);
-        const dateObj = new Date(item.date);
+        const price = parseFloat(item.dfwqs);
+        const dateObj = new Date(item.rohs?.replace("H", "T")?.replace("N", "Z"));
         if (!Number.isFinite(price) || isNaN(dateObj.getTime())) return null;
         return {tarih: dateObj.toISOString(), fiyat: price.toFixed(2)};
       })

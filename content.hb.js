@@ -1,9 +1,7 @@
 // content.hb.js
 const {saveToSync, removeFromSync} = window.storage.sync;
 
-if (typeof browser === "undefined") {
-  var browser = chrome;
-}
+const browser = globalThis.browser ?? globalThis.chrome;
 
 function sendRuntimeMessage(payload) {
   return new Promise((resolve) => {
@@ -226,7 +224,8 @@ async function findBestSeller() {
 
 async function resolvePrice(bestSeller) {
   bestSeller = bestSeller || (await findBestSeller());
-  return bestSeller?.price ?? null;
+  const price = bestSeller?.price ?? null;
+  return price !== null ? Math.round(price * 100) / 100 : null;
 }
 
 async function toggleFollow() {
