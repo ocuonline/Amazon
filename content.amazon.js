@@ -1,8 +1,6 @@
 // content.amazon.js
 const {saveToSync, removeFromSync} = window.storage.sync;
 
-const browser = globalThis.browser ?? globalThis.chrome;
-
 async function saveToDB(order) {
   return new Promise((resolve) => {
     browser.runtime.sendMessage({action: "saveToDB", order}, (response) => {

@@ -1,5 +1,4 @@
 //content.chart.js
-const browser = globalThis.browser ?? globalThis.chrome;
 
 async function getPriceHistory(urunId, platform) {
   try {
