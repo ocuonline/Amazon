@@ -1,8 +1,6 @@
 // content.hb.js
 const {saveToSync, removeFromSync} = window.storage.sync;
 
-const browser = globalThis.browser ?? globalThis.chrome;
-
 function sendRuntimeMessage(payload) {
   return new Promise((resolve) => {
     browser.runtime.sendMessage(payload, (response) => resolve(response));
