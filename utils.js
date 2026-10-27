@@ -29,7 +29,7 @@ export function getTimeAgo(timestamp) {
 
 export function formatTL(val) {
   const num = parseFloat(String(val).replace(",", "."));
-  if (isNaN(num)) return val;
+  if (!Number.isFinite(num)) return "";
   return num.toLocaleString("tr-TR", {minimumFractionDigits: 0, maximumFractionDigits: 2}).replace(/,00$/, "");
 }
 

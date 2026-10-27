@@ -8,8 +8,10 @@ import {sendNotification} from "./notifications.js";
 
 const browser = globalThis.browser ?? globalThis.chrome;
 
-let isCancelled = false;
-let activeCheckId = 0;
+let nextCheckId = 0;
+let fullPriceCheck = null;
+const productPriceChecks = new Map();
+const activeCheckIds = new Set();
 let writeQueue = Promise.resolve();
 
 function queueWrite(fn) {
@@ -18,13 +20,41 @@ function queueWrite(fn) {
   return next;
 }
 
-export function cancelPriceCheck() {
-  isCancelled = true;
+export async function cancelPriceCheck() {
+  activeCheckIds.clear();
+  const runningChecks = [fullPriceCheck, ...productPriceChecks.values()].filter(Boolean);
+  await Promise.allSettled(runningChecks);
 }
 
-export async function checkPrices(productId = null, onProductChecked = null) {
-  isCancelled = false;
-  const checkId = ++activeCheckId;
+export function checkPrices(productId = null, onProductChecked = null) {
+  if (fullPriceCheck) return fullPriceCheck;
+  if (productId && productPriceChecks.has(productId)) return productPriceChecks.get(productId);
+
+  const checkId = ++nextCheckId;
+  activeCheckIds.add(checkId);
+  const check = runPriceCheck(productId, onProductChecked, checkId);
+
+  if (!productId) {
+    fullPriceCheck = check.finally(() => {
+      activeCheckIds.delete(checkId);
+      fullPriceCheck = null;
+    });
+    return fullPriceCheck;
+  }
+
+  const trackedCheck = check.finally(() => {
+    activeCheckIds.delete(checkId);
+    if (productPriceChecks.get(productId) === trackedCheck) productPriceChecks.delete(productId);
+  });
+  productPriceChecks.set(productId, trackedCheck);
+  return trackedCheck;
+}
+
+function isCheckActive(checkId) {
+  return activeCheckIds.has(checkId);
+}
+
+async function runPriceCheck(productId = null, onProductChecked = null, checkId) {
   if (!productId) await browser.storage.local.set({checkedIds: []});
   const initialList = await getAllFromSync();
   const idsToCheck = productId ? [productId] : initialList.map((p) => p.id);
@@ -34,7 +64,7 @@ export async function checkPrices(productId = null, onProductChecked = null) {
   const fetchMode = s.fetchMode ?? "fetch";
 
   async function checkSingle(id, current, total) {
-    if (isCancelled) return;
+    if (!isCheckActive(checkId)) return;
     try {
       const product = await getAllFromSync(id);
       if (!product) {
@@ -51,8 +81,9 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       const targetPrice = product.targetPrice ?? 0;
       const isHB = product.url.includes("hepsiburada.com");
       const prevOutOfStock = product.outOfStock;
-      if (isCancelled) return;
+      if (!isCheckActive(checkId)) return;
       const {newPrice: updatedPrice, outOfStock = undefined, deleted} = await updateProductPrice(product, fetchMode);
+      if (!isCheckActive(checkId)) return;
 
       if (deleted) {
         console.log(`Ürün silinmiş -> ${product.id}`);
@@ -90,9 +121,10 @@ export async function checkPrices(productId = null, onProductChecked = null) {
 
       if (product.outOfStock) {
         const stockOutData = (await browser.storage.local.get(product.id))[product.id] || {};
-        if (!stockOutData.stockOutDate) {
-          await browser.storage.local.set({[product.id]: {oldPrice: stockOutData.oldPrice, stockOutDate: Date.now()}});
-        }
+        delete stockOutData.stockIn;
+        delete stockOutData.stockInDate;
+        if (!stockOutData.stockOutDate) stockOutData.stockOutDate = Date.now();
+        await browser.storage.local.set({[product.id]: stockOutData});
       }
 
       if (prevOutOfStock === true && outOfStock === false && updatedPrice > 0) {
@@ -163,14 +195,12 @@ export async function checkPrices(productId = null, onProductChecked = null) {
       }
 
       try {
-        if (checkId === activeCheckId) {
-          await queueWrite(() => saveToSync([product]));
-        }
+        await queueWrite(() => (isCheckActive(checkId) ? saveToSync([product]) : undefined));
       } catch (e) {
         console.error("saveToSync hatası", e);
       }
 
-      if (priceChanged) {
+      if (priceChanged && isCheckActive(checkId)) {
         await queueWrite(() => updateBadgeCount([{...product, prevPrice, outOfStock: product.outOfStock, _prevOutOfStock: prevOutOfStock}]));
         const {badgeProducts = []} = await browser.storage.local.get("badgeProducts");
         if (!badgeProducts.includes(product.id)) {
@@ -179,8 +209,9 @@ export async function checkPrices(productId = null, onProductChecked = null) {
         }
       }
 
+      if (!isCheckActive(checkId)) return;
       const {checkedIds: prevChecked = []} = await browser.storage.local.get("checkedIds");
-      await browser.storage.local.set({checkedIds: [...prevChecked, id]});
+      if (isCheckActive(checkId)) await browser.storage.local.set({checkedIds: [...prevChecked, id]});
       const checkDelay = Math.floor(Math.random() * 1000) + 2000;
       await new Promise((resolve) => setTimeout(resolve, checkDelay));
       if (onProductChecked) onProductChecked(id);
@@ -191,14 +222,14 @@ export async function checkPrices(productId = null, onProductChecked = null) {
   }
 
   for (let i = 0; i < idsToCheck.length; i += concurrentLimit) {
-    if (isCancelled) {
+    if (!isCheckActive(checkId)) {
       console.log("Fiyat kontrolü iptal edildi.");
       break;
     }
     const group = idsToCheck.slice(i, i + concurrentLimit);
     await Promise.all(group.map((id, j) => checkSingle(id, i + j + 1, idsToCheck.length)));
   }
-  if (!productId) {
+  if (!productId && isCheckActive(checkId)) {
     await LastUpdateTime();
   }
 

@@ -2,12 +2,15 @@
 
 async function getPriceHistory(urunId, platform) {
   try {
-    const auth = await window.getAuthHeaders();
-    const res = await fetch(`https://aft.web.tr/extension/GetPrice.php?urun_id=${urunId}&platform=${platform}`, {
-      headers: auth,
+    const params = new URLSearchParams({
+      id: browser.runtime.id,
+      urun_id: urunId,
+      platform: platform,
     });
+
+    const res = await fetch(`https://aft.web.tr/extension/Get.php?${params.toString()}`);
     const data = await res.json();
-    const hasAftData = Array.isArray(data) && data.length >= 2;
+    const hasAftData = Array.isArray(data) && data.length >= 1;
 
     const nowPrice = window.getLivePrice?.();
     const parsedNow = nowPrice ?? 0;
@@ -24,20 +27,28 @@ async function getPriceHistory(urunId, platform) {
           priceToSave = bestSeller?.price || parsedNow;
         }
 
-        const updateBody = new URLSearchParams({urun_id: urunId, fiyat: priceToSave, platform}).toString();
-        const authUpdate = await window.getAuthHeaders(updateBody);
-        await fetch("https://aft.web.tr/extension/UpdatePrice.php", {
+        const updateBody = new URLSearchParams({
+          id: browser.runtime.id,
+          urun_id: urunId,
+          fiyat: priceToSave,
+          platform: platform,
+        }).toString();
+
+        await fetch("https://aft.web.tr/extension/Update.php", {
           method: "POST",
-          headers: {"Content-Type": "application/x-www-form-urlencoded", ...authUpdate},
+          headers: {"Content-Type": "application/x-www-form-urlencoded"},
           body: updateBody,
         });
 
-        const auth2 = await window.getAuthHeaders();
-        const res2 = await fetch(`https://aft.web.tr/extension/GetPrice.php?urun_id=${urunId}&platform=${platform}`, {
-          headers: auth2,
+        const params2 = new URLSearchParams({
+          id: browser.runtime.id,
+          urun_id: urunId,
+          platform: platform,
         });
+
+        const res2 = await fetch(`https://aft.web.tr/extension/Get.php?${params2.toString()}`);
         const data2 = await res2.json();
-        if (Array.isArray(data2) && data2.length >= 2) rawEntries = data2;
+        if (Array.isArray(data2) && data2.length >= 1) rawEntries = data2;
 
         if (platform === "amazon") {
           console.log("[AFT] rawEntries son eleman:", rawEntries.at(-1));
@@ -47,7 +58,7 @@ async function getPriceHistory(urunId, platform) {
 
     const yanyoEntries = platform === "amazon" ? await fetchYanyoData(urunId) : [];
     console.log("[Yanyo] yanyoEntries:", yanyoEntries.length);
-    const hasYanyo = yanyoEntries.length >= 2;
+    const hasYanyo = yanyoEntries.length >= 1;
 
     if (!rawEntries.length && !hasYanyo) {
       if (platform === "hb") return;
@@ -72,6 +83,10 @@ async function getPriceHistory(urunId, platform) {
 function getPriceMessage(data) {
   const V = {...data.at(-1), tarih: new Date(data.at(-1).tarih)};
   const fiyatlar = data.map((d) => ({tarih: new Date(d.tarih), fiyat: parseFloat(d.fiyat)})).filter((d) => Number.isFinite(d.fiyat));
+
+  if (fiyatlar.length === 1) {
+    return {mesaj: `Ürünün kaydedilen fiyatı ${TL(fiyatlar[0].fiyat)}.`, sınıf: "bilgi"};
+  }
 
   const N = fiyatlar.at(-1).fiyat;
   const B = fiyatlar.at(-2);

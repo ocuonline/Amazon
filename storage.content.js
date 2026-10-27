@@ -14,17 +14,18 @@ window.storage = {
           throw new Error("'items' bir dizi olmalıdır.");
         }
         if (items.length === 0) {
-          await browser.storage.sync.clear();
-          return {success: true, message: "Depolama temizlendi."};
+          const allSync = await browser.storage.sync.get(null);
+          const productKeys = Object.keys(allSync).filter((key) => PRODUCT_KEY_REGEX.test(key));
+          if (productKeys.length) await browser.storage.sync.remove(productKeys);
+          return {success: true, message: "Ürün listesi temizlendi."};
         }
 
-        let itemsToSave = items;
         if (items.length > STORAGE_CONFIG.MAX_ITEMS) {
-          itemsToSave = items.slice(0, STORAGE_CONFIG.MAX_ITEMS);
+          return {success: false, message: `Takip listesi en fazla ${STORAGE_CONFIG.MAX_ITEMS} ürün olabilir; liste doldu.`};
         }
 
         const groupedData = {};
-        for (const item of itemsToSave) {
+        for (const item of items) {
           groupedData[item.id] = item;
         }
         await browser.storage.sync.set(groupedData);

@@ -95,7 +95,7 @@ export function openAlarmModal(product, alarmWrapper, oldPriceFormatted) {
     }
 
     errorDiv.textContent = "";
-    product.targetPrice = val === oldPriceVal ? null : val;
+    product.targetPrice = val;
     alarmTextNode.textContent = ` ${product.targetPrice ? `${formatTL(product.targetPrice)} ₺ ` : oldPriceFormatted || "—"}`;
 
     const allProducts = await getAllFromSync();
@@ -140,15 +140,19 @@ export function openAlarmModal(product, alarmWrapper, oldPriceFormatted) {
     {signal: sig},
   );
 
-  input.addEventListener("input", (e) => {
-    const pos = e.target.selectionStart;
-    const raw = e.target.value.replace(/[^0-9,]/g, "");
-    const num = parseFloat(raw.replace(/\./g, "").replace(",", "."));
-    if (!isNaN(num)) {
-      e.target.value = formatTL(num);
-      e.target.setSelectionRange(pos, pos);
-    }
-  });
+  input.addEventListener(
+    "input",
+    (e) => {
+      const pos = e.target.selectionStart;
+      const raw = e.target.value.replace(/[^0-9,]/g, "");
+      const num = parseFloat(raw.replace(/\./g, "").replace(",", "."));
+      if (!isNaN(num)) {
+        e.target.value = formatTL(num);
+        e.target.setSelectionRange(pos, pos);
+      }
+    },
+    {signal: sig},
+  );
 }
 
 export async function renderProductList(products, productList, order = null, emptyMessage = "Henüz ürün takip edilmiyor.") {
@@ -168,7 +172,7 @@ export async function renderProductList(products, productList, order = null, emp
     browser.storage.local.get("percentMode"),
     browser.storage.local.get(products.map((p) => p.id)),
   ]);
-  const picMap = new Map(resolvedOrder.map((o) => [o.id, o.pic]));
+  const picMap = new Map(resolvedOrder.map((o) => [o.id, o.pic || o.picUrl]));
 
   const rows = await Promise.all(
     products.map((product) => createProductRow(product, productList, resolvedOrder, picMap, percentMode, localDataResult[product.id] || {})),
@@ -599,7 +603,7 @@ export async function updateProductRow(id, productList, {products, order, percen
   const product = resolvedProducts.find((p) => p.id === id);
   if (!product) return;
   const resolvedOrder = order ?? (await getAllFromDB());
-  const picMap = new Map(resolvedOrder.map((o) => [o.id, o.pic]));
+  const picMap = new Map(resolvedOrder.map((o) => [o.id, o.pic || o.picUrl]));
   const oldRow = document.getElementById(`check-btn-${id}`)?.closest(".product-row");
   const resolvedPercentMode = percentMode ?? (await browser.storage.local.get("percentMode")).percentMode ?? "general";
   const localData = localDataBatch ? localDataBatch[id] || {} : (await browser.storage.local.get(id))[id] || {};

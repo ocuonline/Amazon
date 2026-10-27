@@ -58,6 +58,7 @@ async function saveToMysql(id, price, url, name, platform, barcode = null) {
   if (!price || price === 0) return;
   try {
     const data = new URLSearchParams();
+    data.append("id", browser.runtime.id);
     data.append("productId", id);
     data.append("price", price);
     data.append("url", url);
@@ -65,10 +66,10 @@ async function saveToMysql(id, price, url, name, platform, barcode = null) {
     data.append("platform", platform);
     if (barcode) data.append("barcode", barcode);
     const bodyStr = data.toString();
-    const auth = await window.getAuthHeaders(bodyStr);
-    const res = await fetch("https://aft.web.tr/extension/SavePrice.php", {
+
+    const res = await fetch("https://aft.web.tr/extension/Save.php", {
       method: "POST",
-      headers: {"Content-Type": "application/x-www-form-urlencoded", ...auth},
+      headers: {"Content-Type": "application/x-www-form-urlencoded"},
       body: bodyStr,
     });
     if (!res.ok) throw new Error("Veri gönderme sırasında hata oluştu.");

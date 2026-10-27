@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AFT - Anlık Fiyat Takip Eklentisi",
   "description": "Amazon ve Hepsiburada ürünlerini takip edin ve fiyat düştüğünde uyarı alın.",
-  "version": "1.92",
+  "version": "1.94",
   "permissions": ["notifications", "activeTab", "offscreen", "storage", "alarms", "scripting", "tabs"],
   "host_permissions": ["*://*.amazon.com.tr/*", "*://*.hepsiburada.com/*", "*://*.yaniyo.com/*", "*://aft.web.tr/*"],
   "background": {
@@ -22,17 +22,17 @@
   "content_scripts": [
     {
       "matches": ["*://*.hepsiburada.com/*-p-*", "*://*.hepsiburada.com/*-pm-*"],
-      "js": ["storage.content.js", "src/echarts.min.js", "src/auth.js", "content.chart.js", "content.shared.js", "content.hb.js"],
+      "js": ["storage.content.js", "src/echarts.min.js", "content.chart.js", "content.shared.js", "content.hb.js"],
       "css": ["css/styles.css"]
     },
     {
       "matches": ["*://*.amazon.com.tr/dp/*", "*://*.amazon.com.tr/*/dp/*", "*://*.amazon.com.tr/gp/product/*", "*://*.amazon.com.tr/*/gp/product/*"],
-      "js": ["storage.content.js", "src/echarts.min.js", "src/auth.js", "content.chart.js", "content.shared.js", "content.amazon.js"],
+      "js": ["storage.content.js", "src/echarts.min.js", "content.chart.js", "content.shared.js", "content.amazon.js"],
       "css": ["css/styles.css"]
     },
     {
       "matches": ["*://*.amazon.com.tr/gp/cart*", "*://*.amazon.com.tr/cart*"],
-      "js": ["storage.content.js", "src/auth.js", "content.shared.js", "content.sepet.js"],
+      "js": ["storage.content.js", "content.shared.js", "content.sepet.js"],
       "css": ["css/styles.css"]
     }
   ],

@@ -1,6 +1,4 @@
 //popup.chart.js (bu açıklamayı silme)
-import {getAuthHeaders} from "./src/auth2.js";
-
 const browser = globalThis.browser ?? globalThis.chrome;
 
 const CONFIG = {
@@ -61,17 +59,16 @@ async function fetchYanyoData(asin) {
 
 export async function fetchProductData(urun_id) {
   const platform = urun_id.startsWith("HB") ? "hb" : "amazon";
-  console.log("[fetchProductData] başladı:", urun_id, "platform:", platform);
   try {
-    const auth = await getAuthHeaders();
-    console.log("[fetchProductData] auth headers:", auth);
-    const res = await fetch(`https://aft.web.tr/extension/GetPrice.php?urun_id=${urun_id}&platform=${platform}`, {
-      headers: auth,
+    const params = new URLSearchParams({
+      id: browser.runtime.id,
+      urun_id,
+      platform,
     });
-    console.log("[fetchProductData] response status:", res.status, res.ok);
+
+    const res = await fetch(`https://aft.web.tr/extension/Get.php?${params.toString()}`);
     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
     const json = await res.json();
-    console.log("[fetchProductData] dönen veri:", json);
     return json;
   } catch (err) {
     console.error("[fetchProductData] HATA:", err.message);
@@ -80,19 +77,14 @@ export async function fetchProductData(urun_id) {
 }
 
 export async function renderChart(urun_id, data, realProductId = urun_id) {
-  console.log("[renderChart] başladı, urun_id:", urun_id, "realProductId:", realProductId);
   const el = document.getElementById(urun_id);
-  console.log("[renderChart] element bulundu mu:", el);
   const container = el?.parentNode;
-  console.log("[renderChart] container:", container);
   if (!container) {
     console.error("[renderChart] container bulunamadı, çıkılıyor.");
     return;
   }
 
   data = Array.isArray(data) ? data : [];
-  console.log("[renderChart] data uzunluğu:", data.length, "ilk 3 kayıt:", data.slice(0, 3));
-
   const isAmazon = !realProductId.startsWith("HB");
   const yanyoRaw = !realProductId.startsWith("HB") ? await fetchYanyoData(realProductId) : [];
 
@@ -121,7 +113,6 @@ export async function renderChart(urun_id, data, realProductId = urun_id) {
 
   const initialAgg = getAgg(12);
   const initialYanyo = getYanyo(12);
-  console.log("[YANIYO DEBUG] initialAgg.length:", initialAgg.length, "initialYanyo.length:", initialYanyo.length, "initialYanyo:", initialYanyo);
   chart.setOption(getChartOption(initialAgg, initialYanyo, toggleState));
 
   const {periodButtons, toggleButtons} = createHeader(container, "1yıl", isAmazon);
@@ -259,7 +250,10 @@ function getChartOption(data, yanyoData = [], toggleState = {aft: true, yanyo: t
     xAxis: {
       type: "category",
       data: allLabels,
-      axisLabel: {color: "#aaa"},
+      axisLabel: {
+        color: "#aaa",
+        formatter: (value) => new Date(value).toLocaleString("tr-TR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}),
+      },
       axisLine: {lineStyle: {color: "#444"}},
       splitLine: {lineStyle: {color: "#2a2a2a"}},
     },

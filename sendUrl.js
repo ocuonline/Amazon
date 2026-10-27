@@ -1,100 +1,17 @@
 //background > sendUrl.js
-import {getAuthHeaders, hmacSign} from "./src/auth2.js";
-
 const browser = globalThis.browser ?? globalThis.chrome;
 
-export async function registerToken() {
-  try {
-    const extensionId = browser.runtime.id;
-    const {clientId, fingerprint} = await browser.storage.local.get(["clientId", "fingerprint"]);
-
-    if (!clientId || !fingerprint) {
-      console.warn("registerToken: clientId veya fingerprint eksik, atlanıyor.");
-      return;
-    }
-
-    const res = await fetch("https://aft.web.tr/extension/register.php", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "X-Extension-Id": extensionId,
-        "X-Client-Id": clientId,
-        "X-Fingerprint": fingerprint,
-      },
-      body: new URLSearchParams({extension_id: extensionId}),
-    });
-    const data = await res.json();
-    const update = {};
-    if (data.token) update.authToken = data.token;
-    if (data.hmac_secret) update.hmacSecret = data.hmac_secret;
-    if (data.expires_at) update.expiresAt = data.expires_at;
-    if (Object.keys(update).length) {
-      await browser.storage.local.set(update);
-    }
-  } catch (err) {
-    console.error("Token alınamadı:", err);
-  }
-}
-
-export async function refreshToken() {
-  const extensionId = browser.runtime.id;
-  const result = await browser.storage.local.get(["authToken", "hmacSecret", "clientId", "fingerprint"]);
-  if (!result.hmacSecret || !result.authToken) {
-    console.warn("refreshToken: credentials eksik, atlanıyor.");
-    return;
-  }
-  if (!result.clientId || !result.fingerprint) {
-    console.warn("refreshToken: clientId veya fingerprint eksik, atlanıyor.");
-    return;
-  }
-  try {
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const signature = await hmacSign(result.hmacSecret, timestamp + ".");
-    const response = await fetch("https://aft.web.tr/extension/refresh_token.php", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "X-Token": result.authToken || "",
-        "X-Extension-Id": extensionId,
-        "X-Client-Id": result.clientId || "",
-        "X-Fingerprint": result.fingerprint || "",
-        "X-Timestamp": timestamp,
-        "X-Signature": signature,
-      },
-    });
-    if (!response.ok) {
-      const errText = await response.text();
-      console.warn("refreshToken başarısız, durum kodu:", response.status, errText);
-      if (response.status === 401) {
-        await registerToken();
-      }
-      return;
-    }
-    const data = await response.json();
-    const update = {};
-    if (data.token) {
-      update.authToken = data.token;
-    }
-    if (data.hmac_secret) {
-      update.hmacSecret = data.hmac_secret;
-    }
-    if (data.expires_at) {
-      update.expiresAt = data.expires_at;
-    }
-    if (Object.keys(update).length) {
-      await browser.storage.local.set(update);
-    }
-  } catch (e) {
-    console.error("refreshToken hatası:", e.message);
-  }
-}
-
 export async function sendPriceChange(productId, newPrice, platform = "amazon") {
-  const body = new URLSearchParams({urun_id: productId, fiyat: newPrice, platform}).toString();
-  const authHeaders = await getAuthHeaders(body);
-  const response = await fetch("https://aft.web.tr/extension/UpdatePrice.php", {
+  const body = new URLSearchParams({
+    id: browser.runtime.id,
+    urun_id: productId,
+    fiyat: newPrice,
+    platform,
+  }).toString();
+
+  const response = await fetch("https://aft.web.tr/extension/Update.php", {
     method: "POST",
-    headers: {"Content-Type": "application/x-www-form-urlencoded", ...authHeaders},
+    headers: {"Content-Type": "application/x-www-form-urlencoded"},
     body,
   });
 
@@ -106,10 +23,9 @@ export async function sendPriceChange(productId, newPrice, platform = "amazon") 
 
 export async function sendDeletedProduct(productId) {
   const body = new URLSearchParams({urun_id: productId}).toString();
-  const authHeaders = await getAuthHeaders(body);
   await fetch("https://aft.web.tr/extension/deletedProduct.php", {
     method: "POST",
-    headers: {"Content-Type": "application/x-www-form-urlencoded", ...authHeaders},
+    headers: {"Content-Type": "application/x-www-form-urlencoded"},
     body,
   });
 }

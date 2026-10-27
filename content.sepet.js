@@ -133,7 +133,7 @@ function addCartButtons(item) {
         onSave: async (resolved) => {
           const {base64: pic, url: picUrl} = await getProductImageFromUrl(resolved.picUrl);
           await saveToDB([{id: resolved.id, date: formatDateTime(), pic, picUrl}]);
-          await saveToMysql(resolved.id, resolved.firstPrice, resolved.url, resolved.name);
+          await saveToMysql(resolved.id, resolved.firstPrice, resolved.url, resolved.name, "amazon");
         },
         onRefresh: () => {
           item.querySelector(".cart-follow-wrapper")?.remove();

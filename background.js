@@ -1,7 +1,6 @@
 // background.js (bu açıklamayı silme)
 import {saveToDB, removeFromDB, fixProductData} from "./storage.js";
-import {refreshToken, registerToken} from "./sendUrl.js";
-import {checkPrices} from "./update.js";
+import {checkPrices, cancelPriceCheck} from "./update.js";
 
 const browser = globalThis.browser ?? globalThis.chrome;
 
@@ -31,6 +30,12 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       )
       .then((base64) => sendResponse({base64}))
       .catch(() => sendResponse({base64: null}));
+    return true;
+  }
+  if (message.action === "cancelPriceCheck") {
+    cancelPriceCheck()
+      .then(() => sendResponse({success: true}))
+      .catch((error) => sendResponse({success: false, error: error.message}));
     return true;
   }
   if (message.action === "startPriceCheck") {
@@ -72,10 +77,6 @@ browser.storage.onChanged.addListener((changes, area) => {
 });
 
 browser.runtime.onInstalled.addListener(async (details) => {
-  await ensureClientIdentity();
-  await registerToken();
-  await refreshToken();
-  browser.alarms.create("tokenRefreshAlarm", {periodInMinutes: 45});
   const settings = (await browser.storage.sync.get("settings")).settings || getDefaultSettings();
   if (settings.priceCheckInterval !== "0") {
     initializeSettings();
@@ -88,9 +89,6 @@ browser.runtime.onInstalled.addListener(async (details) => {
 
 browser.runtime.onStartup.addListener(async () => {
   console.log("Tarayıcı yeniden başlatıldı.");
-  await ensureClientIdentity();
-  await refreshToken().catch(() => registerToken());
-  browser.alarms.create("tokenRefreshAlarm", {periodInMinutes: 45});
   const settings = (await browser.storage.sync.get("settings")).settings || getDefaultSettings();
   if (settings.priceCheckInterval !== "0") {
     initializeSettings();
@@ -101,9 +99,6 @@ browser.runtime.onStartup.addListener(async () => {
 browser.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "priceCheckAlarm") {
     checkPrices();
-  }
-  if (alarm.name === "tokenRefreshAlarm") {
-    refreshToken();
   }
 });
 
@@ -131,36 +126,6 @@ function schedulePriceCheck(settings) {
     });
   } else {
     console.error("Ayarlar yüklenemedi.");
-  }
-}
-
-async function generateFingerprint() {
-  const stored = await browser.storage.local.get("fpSalt");
-  let salt = stored.fpSalt;
-  if (!salt) {
-    salt = crypto.randomUUID();
-    await browser.storage.local.set({fpSalt: salt});
-  }
-
-  const raw = [navigator.hardwareConcurrency, Intl.DateTimeFormat().resolvedOptions().timeZone, navigator.platform, navigator.vendor, salt].join("|");
-
-  const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function ensureClientIdentity() {
-  const result = await browser.storage.local.get(["clientId", "fingerprint"]);
-
-  let fingerprint = result.fingerprint;
-  if (!fingerprint) {
-    fingerprint = await generateFingerprint();
-    await browser.storage.local.set({fingerprint});
-  }
-
-  if (!result.clientId) {
-    await browser.storage.local.set({clientId: fingerprint});
   }
 }
 

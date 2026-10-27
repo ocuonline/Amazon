@@ -80,8 +80,8 @@ const toggleSoundOptions = () => {
     stockNotification: soundOn,
     priceIncreaseNotification: soundOn,
     targetPriceNotification: soundOn,
-    priceChangeThreshold: soundOn,
-    requireInteraction: soundOn,
+    priceChangeThreshold: soundOn || visualOn,
+    requireInteraction: visualOn,
     notificationVolume: soundOn,
   };
 

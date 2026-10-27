@@ -94,13 +94,12 @@ export async function saveToSync(items) {
       return {success: true, message: "Depolama temizlendi."};
     }
 
-    let itemsToSave = items;
     if (items.length > STORAGE_CONFIG.MAX_ITEMS) {
-      itemsToSave = items.slice(0, STORAGE_CONFIG.MAX_ITEMS);
+      return {success: false, message: `Takip listesi en fazla ${STORAGE_CONFIG.MAX_ITEMS} ürün olabilir; liste doldu.`};
     }
 
     const groupedData = {};
-    for (const item of itemsToSave) {
+    for (const item of items) {
       groupedData[item.id] = item;
     }
     await browser.storage.sync.set(groupedData);

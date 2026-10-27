@@ -1,7 +1,7 @@
 // popup.js
 import {getAllFromSync, saveToSync, clearAllStorage, getAllFromDB, saveToDB} from "./storage.js";
 import {renderProductList, sortByOrder, updateProductRow, calcPercent} from "./popup.table.js";
-import {checkPrices, cancelPriceCheck} from "./update.js";
+import {checkPrices} from "./update.js";
 import {parseDate, showToast} from "./utils.js";
 
 const browser = globalThis.browser ?? globalThis.chrome;
@@ -454,7 +454,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     deleteAllButton.addEventListener("click", async () => {
       if (confirm("Tüm ürünleri silmek istediğinize emin misiniz?")) {
-        cancelPriceCheck();
+        const cancellation = await browser.runtime.sendMessage({action: "cancelPriceCheck"});
+        if (!cancellation?.success) {
+          showToast("Devam eden fiyat kontrolü durdurulamadı.", "error");
+          return;
+        }
         const products = await getAllFromSync();
         await clearAllStorage();
         renderProductList([], productList);
