@@ -140,6 +140,9 @@ async function toggleFollow() {
   const asin = getASIN();
   if (!asin) return;
 
+  const button = document.querySelector("#followButton");
+  if (button?.dataset.busy === "true") return;
+
   try {
     const product = getProduct(asin);
     if (product && product.variationsValid === false) {
@@ -147,29 +150,58 @@ async function toggleFollow() {
       return;
     }
 
+    if (button) {
+      button.dataset.busy = "true";
+      button.disabled = true;
+      button.textContent = "İşleniyor…";
+    }
+
     const data = await browser.storage.sync.get(null);
-    let followList = getBlocks(data);
+    const followList = getBlocks(data);
     const index = followList.findIndex((item) => item.id === asin);
+
     if (index === -1) {
       const {id, name, url} = product;
-      const bestSeller = await findBestSeller(id);
-      const firstPrice = bestSeller?.price || product.firstPrice;
-      const productWithCanonical = {...product, firstPrice};
-      followList.push(buildFollowEntry(productWithCanonical));
+      // Kaydetme işlemini engellememek için önce sayfada bulunan fiyatı kullan.
+      const firstPrice = product.firstPrice;
+      followList.push(buildFollowEntry({...product, firstPrice}));
 
       const result = await saveToSync(followList);
       if (!result.success) {
-        if (result.message.includes("doldu")) {
-          toast(result.message, "error");
+        if (result.message.includes("doldu")) toast(result.message, "error");
+        if (button) {
+          button.disabled = false;
+          delete button.dataset.busy;
+          updateButton(false, !!product.firstPrice, button, product.variationsValid === false);
         }
         return;
       }
 
-      const {base64: pic, url: picUrl} = await getProductImage();
-      await saveToDB([{id, date: formatDateTime(), pic, picUrl}]);
+      // Başarılı takip kaydından hemen sonra arayüzü güncelle; yavaş ağ işlemleri arkada sürsün.
+      updateButton(true, !!firstPrice, button, product.variationsValid === false);
+      if (button) {
+        button.disabled = false;
+        delete button.dataset.busy;
+      }
       toast("Takip listesine eklendi", "success");
-      await saveToMysql(id, firstPrice, url, name, "amazon");
-      addFollowButton();
+
+      void (async () => {
+        try {
+          const [bestSeller, image] = await Promise.all([findBestSeller(id), getProductImage()]);
+          const resolvedPrice = bestSeller?.price || firstPrice;
+          if (bestSeller?.price && bestSeller.price !== firstPrice) {
+            const latest = await browser.storage.sync.get(id);
+            if (latest[id]) await browser.storage.sync.set({[id]: {...latest[id], firstPrice: resolvedPrice}});
+          }
+          const {base64: pic, url: picUrl} = image;
+          await Promise.all([
+            saveToDB([{id, date: formatDateTime(), pic, picUrl}]),
+            saveToMysql(id, resolvedPrice, url, name, "amazon"),
+          ]);
+        } catch (error) {
+          console.error("Takip sonrası arka plan işlemi hata:", error);
+        }
+      })();
     } else {
       followList.splice(index, 1);
       await removeFromSync(asin);
@@ -181,6 +213,11 @@ async function toggleFollow() {
     }
   } catch (error) {
     console.error("toggleFollow hata:", error);
+    if (button) {
+      button.disabled = false;
+      delete button.dataset.busy;
+      button.textContent = "⭐ Takip Et";
+    }
   }
 }
 
