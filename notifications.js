@@ -3,6 +3,22 @@ import {getAllFromSync} from "./storage.js";
 import {formatTL} from "./utils.js";
 
 const browser = globalThis.browser ?? globalThis.chrome;
+const notificationTargets = new Map();
+
+browser.notifications.onClicked.addListener((notificationId) => {
+  const url = notificationTargets.get(notificationId);
+  if (!url) return;
+  notificationTargets.delete(notificationId);
+  browser.tabs.create({url});
+});
+
+browser.notifications.onClosed.addListener((notificationId) => {
+  notificationTargets.delete(notificationId);
+});
+
+function registerNotificationTarget(notificationId, url) {
+  notificationTargets.set(notificationId, url);
+}
 
 export async function sendNotification(product, oldPrice, newPrice, type) {
   const {settings = {}} = await browser.storage.sync.get("settings");
@@ -13,15 +29,6 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
   const percentageChange = oldPriceValue ? (priceChange / oldPriceValue) * 100 : 0;
   const percentChangeRounded = Math.round(percentageChange);
 
-  const addNotificationListener = (notificationId) => {
-    const handler = (id) => {
-      if (id !== notificationId) return;
-      browser.tabs.create({url: product.url});
-      browser.notifications.onClicked.removeListener(handler);
-    };
-    browser.notifications.onClicked.addListener(handler);
-  };
-
   if (type === "stock") {
     const notificationId = `stock_${product.id}`;
     if (settings.allVisualNotification === "av_on" && settings.visualStockNotification === "vs_on" && settings.stockNotification === "s_on") {
@@ -29,11 +36,11 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `Ürün Stoğa Girdi: ₺${formatTL(newPrice)}\n${product.name}`,
+        message: `Ürün Stoğa Girdi: ₺${formatTL(newPrice)}\\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") stockOptions.requireInteraction = settings.requireInteraction === "ri_on";
+      registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, stockOptions);
-      addNotificationListener(notificationId);
     }
     if (settings.notificationType === "n_on" && settings.stockNotification === "s_on") {
       playNotificationSound(settings.stockSound, settings.notificationVolume);
@@ -41,15 +48,19 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
   } else if (type === "targetPrice") {
     const notificationId = `targetPrice_${product.id}`;
     if (settings.allVisualNotification === "av_on" && settings.visualTargetPriceNotification === "vtp_on" && settings.targetPriceNotification === "tp_on") {
+      const previousPrice = oldPrice == null ? "" : formatTL(oldPrice);
+      const priceMessage = previousPrice
+        ? `🎯 Hedef Fiyata Ulaştı: ₺${previousPrice} -> ₺${formatTL(newPrice)}`
+        : `🎯 Hedef Fiyata Ulaştı: ₺${formatTL(newPrice)}`;
       const targetOptions = {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `🎯 Hedef Fiyata Ulaştı: ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)}\n${product.name}`,
+        message: `${priceMessage}\\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") targetOptions.requireInteraction = settings.requireInteraction === "ri_on";
+      registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, targetOptions);
-      addNotificationListener(notificationId);
     }
     if (settings.notificationType === "n_on" && settings.targetPriceNotification === "tp_on") {
       playNotificationSound(settings.targetPriceSound, settings.notificationVolume);
@@ -61,11 +72,11 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `İndirim ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\n${product.name}`,
+        message: `İndirim ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") discountOptions.requireInteraction = settings.requireInteraction === "ri_on";
+      registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, discountOptions);
-      addNotificationListener(notificationId);
     }
     if (settings.notificationType === "n_on" && settings.discountNotification === "d_on") {
       playNotificationSound(settings.discountSound, settings.notificationVolume);
@@ -77,11 +88,11 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `Zam ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\n${product.name}`,
+        message: `Zam ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") increaseOptions.requireInteraction = settings.requireInteraction === "ri_on";
+      registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, increaseOptions);
-      addNotificationListener(notificationId);
     }
     if (settings.notificationType === "n_on" && settings.priceIncreaseNotification === "pi_on") {
       playNotificationSound(settings.priceIncreaseSound, settings.notificationVolume);
