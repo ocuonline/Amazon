@@ -3,6 +3,24 @@ import {getAllFromSync} from "./storage.js";
 import {formatTL} from "./utils.js";
 
 const browser = globalThis.browser ?? globalThis.chrome;
+const notificationTargetKey = (notificationId) => `notificationTarget_${notificationId}`;
+
+browser.notifications.onClicked.addListener(async (notificationId) => {
+  const key = notificationTargetKey(notificationId);
+  const stored = await browser.storage.local.get(key);
+  const url = stored[key];
+  if (!url) return;
+  await browser.storage.local.remove(key);
+  await browser.tabs.create({url});
+});
+
+browser.notifications.onClosed.addListener((notificationId) => {
+  browser.storage.local.remove(notificationTargetKey(notificationId));
+});
+
+async function registerNotificationTarget(notificationId, url) {
+  await browser.storage.local.set({[notificationTargetKey(notificationId)]: url});
+}
 
 export async function sendNotification(product, oldPrice, newPrice, type) {
   const {settings = {}} = await browser.storage.sync.get("settings");
@@ -12,15 +30,6 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
   const priceChange = Math.abs(newPriceValue - oldPriceValue);
   const percentageChange = oldPriceValue ? (priceChange / oldPriceValue) * 100 : 0;
   const percentChangeRounded = Math.round(percentageChange);
-
-  const addNotificationListener = (notificationId) => {
-    const handler = (id) => {
-      if (id !== notificationId) return;
-      browser.tabs.create({url: product.url});
-      browser.notifications.onClicked.removeListener(handler);
-    };
-    browser.notifications.onClicked.addListener(handler);
-  };
 
   if (type === "stock") {
     const notificationId = `stock_${product.id}`;
@@ -32,8 +41,8 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         message: `Ürün Stoğa Girdi: ₺${formatTL(newPrice)}\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") stockOptions.requireInteraction = settings.requireInteraction === "ri_on";
+      await registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, stockOptions);
-      addNotificationListener(notificationId);
     }
     if (settings.notificationType === "n_on" && settings.stockNotification === "s_on") {
       playNotificationSound(settings.stockSound, settings.notificationVolume);
@@ -41,15 +50,19 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
   } else if (type === "targetPrice") {
     const notificationId = `targetPrice_${product.id}`;
     if (settings.allVisualNotification === "av_on" && settings.visualTargetPriceNotification === "vtp_on" && settings.targetPriceNotification === "tp_on") {
+      const previousPrice = oldPrice == null ? "" : formatTL(oldPrice);
+      const priceMessage = previousPrice
+        ? `🎯 Hedef Fiyata Ulaştı: ₺${previousPrice} -> ₺${formatTL(newPrice)}`
+        : `🎯 Hedef Fiyata Ulaştı: ₺${formatTL(newPrice)}`;
       const targetOptions = {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `🎯 Hedef Fiyata Ulaştı: ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)}\n${product.name}`,
+        message: `${priceMessage}\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") targetOptions.requireInteraction = settings.requireInteraction === "ri_on";
+      await registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, targetOptions);
-      addNotificationListener(notificationId);
     }
     if (settings.notificationType === "n_on" && settings.targetPriceNotification === "tp_on") {
       playNotificationSound(settings.targetPriceSound, settings.notificationVolume);
@@ -64,8 +77,8 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         message: `İndirim ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") discountOptions.requireInteraction = settings.requireInteraction === "ri_on";
+      await registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, discountOptions);
-      addNotificationListener(notificationId);
     }
     if (settings.notificationType === "n_on" && settings.discountNotification === "d_on") {
       playNotificationSound(settings.discountSound, settings.notificationVolume);
@@ -80,8 +93,8 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         message: `Zam ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") increaseOptions.requireInteraction = settings.requireInteraction === "ri_on";
+      await registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, increaseOptions);
-      addNotificationListener(notificationId);
     }
     if (settings.notificationType === "n_on" && settings.priceIncreaseNotification === "pi_on") {
       playNotificationSound(settings.priceIncreaseSound, settings.notificationVolume);
