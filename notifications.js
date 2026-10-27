@@ -3,21 +3,23 @@ import {getAllFromSync} from "./storage.js";
 import {formatTL} from "./utils.js";
 
 const browser = globalThis.browser ?? globalThis.chrome;
-const notificationTargets = new Map();
+const notificationTargetKey = (notificationId) => `notificationTarget_${notificationId}`;
 
-browser.notifications.onClicked.addListener((notificationId) => {
-  const url = notificationTargets.get(notificationId);
+browser.notifications.onClicked.addListener(async (notificationId) => {
+  const key = notificationTargetKey(notificationId);
+  const stored = await browser.storage.local.get(key);
+  const url = stored[key];
   if (!url) return;
-  notificationTargets.delete(notificationId);
-  browser.tabs.create({url});
+  await browser.storage.local.remove(key);
+  await browser.tabs.create({url});
 });
 
 browser.notifications.onClosed.addListener((notificationId) => {
-  notificationTargets.delete(notificationId);
+  browser.storage.local.remove(notificationTargetKey(notificationId));
 });
 
-function registerNotificationTarget(notificationId, url) {
-  notificationTargets.set(notificationId, url);
+async function registerNotificationTarget(notificationId, url) {
+  await browser.storage.local.set({[notificationTargetKey(notificationId)]: url});
 }
 
 export async function sendNotification(product, oldPrice, newPrice, type) {
@@ -36,10 +38,10 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `Ürün Stoğa Girdi: ₺${formatTL(newPrice)}\\n${product.name}`,
+        message: `Ürün Stoğa Girdi: ₺${formatTL(newPrice)}\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") stockOptions.requireInteraction = settings.requireInteraction === "ri_on";
-      registerNotificationTarget(notificationId, product.url);
+      await registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, stockOptions);
     }
     if (settings.notificationType === "n_on" && settings.stockNotification === "s_on") {
@@ -56,10 +58,10 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `${priceMessage}\\n${product.name}`,
+        message: `${priceMessage}\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") targetOptions.requireInteraction = settings.requireInteraction === "ri_on";
-      registerNotificationTarget(notificationId, product.url);
+      await registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, targetOptions);
     }
     if (settings.notificationType === "n_on" && settings.targetPriceNotification === "tp_on") {
@@ -72,10 +74,10 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `İndirim ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\\n${product.name}`,
+        message: `İndirim ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") discountOptions.requireInteraction = settings.requireInteraction === "ri_on";
-      registerNotificationTarget(notificationId, product.url);
+      await registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, discountOptions);
     }
     if (settings.notificationType === "n_on" && settings.discountNotification === "d_on") {
@@ -88,10 +90,10 @@ export async function sendNotification(product, oldPrice, newPrice, type) {
         type: "basic",
         iconUrl: "icons/icon48.png",
         title: "",
-        message: `Zam ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\\n${product.name}`,
+        message: `Zam ₺${formatTL(oldPrice)} -> ₺${formatTL(newPrice)} (%${percentChangeRounded})\n${product.name}`,
       };
       if (typeof chrome?.offscreen !== "undefined") increaseOptions.requireInteraction = settings.requireInteraction === "ri_on";
-      registerNotificationTarget(notificationId, product.url);
+      await registerNotificationTarget(notificationId, product.url);
       browser.notifications.create(notificationId, increaseOptions);
     }
     if (settings.notificationType === "n_on" && settings.priceIncreaseNotification === "pi_on") {
